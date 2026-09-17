@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from app.cover_letter import generate_cover_letter
 from app.cv_generator import build_cv
+from app.cv_tailor import tailor_profile
 from app.job_search import ALL_SITES, STATUSES, get_job, get_stats, list_jobs, save_jobs, search_jobs, set_status
 from app.models import Profile
 
@@ -90,6 +91,38 @@ with tab_cv:
                 file_name=f"{profile.contact.full_name.replace(' ', '_')}_CV.pdf",
                 mime="application/pdf",
             )
+
+        with st.expander("İlana özel uyarla (Claude ile)"):
+            st.caption(
+                "Bir ilan açıklaması yapıştır; Claude yeni bir deneyim/yetenek uydurmaz, "
+                "yalnızca profildeki özeti bu ilana göre yeniden yazar ve mevcut deneyim/"
+                "yetenekleri alaka düzeyine göre yeniden sıralar. Çalışması için ortamda "
+                "ANTHROPIC_API_KEY tanımlı olmalı."
+            )
+            tailor_job_description = st.text_area("İlan açıklaması", height=150, key="tailor_job_description")
+            if st.button("İlana Özel CV Oluştur"):
+                if not tailor_job_description.strip():
+                    st.error("İlan açıklamasını yapıştır.")
+                else:
+                    try:
+                        with st.spinner("Claude profili bu ilana göre uyarlıyor..."):
+                            tailored_profile, result = tailor_profile(profile, tailor_job_description)
+                        pdf = build_cv(tailored_profile)
+                        st.session_state["tailored_cv_pdf_bytes"] = bytes(pdf.output())
+                        st.session_state["tailored_missing_keywords"] = result.missing_keywords
+                        st.success("İlana özel CV oluşturuldu.")
+                    except Exception as e:
+                        st.error(f"Uyarlama başarısız oldu: {e}")
+            if "tailored_cv_pdf_bytes" in st.session_state:
+                st.download_button(
+                    "İlana özel CV'yi indir (PDF)",
+                    data=st.session_state["tailored_cv_pdf_bytes"],
+                    file_name=f"{profile.contact.full_name.replace(' ', '_')}_CV_ilana_ozel.pdf",
+                    mime="application/pdf",
+                )
+                missing = st.session_state.get("tailored_missing_keywords") or []
+                if missing:
+                    st.caption("İlanda geçip profilinde bulunmayan anahtar kelimeler: " + ", ".join(missing))
 
 # ------------------------------------------------------------------ İş Ara --
 with tab_search:
