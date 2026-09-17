@@ -19,14 +19,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 from jobspy import scrape_jobs
 
+from app.matching import contains_keyword
 from app.models import Profile
 
 ALL_SITES = [
@@ -82,8 +83,7 @@ def _profile_keywords(profile: Profile) -> set[str]:
 def _match_score(description: str | None, keywords: set[str]) -> float | None:
     if not isinstance(description, str) or not description or not keywords:
         return None
-    text = description.lower()
-    hits = sum(1 for kw in keywords if re.search(rf"(?<!\w){re.escape(kw)}(?!\w)", text))
+    hits = sum(1 for kw in keywords if contains_keyword(description, kw))
     return round(hits / len(keywords), 3)
 
 
@@ -96,18 +96,22 @@ def search_jobs(
     country_indeed: str = "turkey",
     linkedin_fetch_description: bool = False,
 ):
-    """Verilen platformları tarar.
+    """Verilen platformları paralel ve birbirinden izole şekilde tarar.
 
-    JobSpy bazı platform/ülke kombinasyonlarında (ör. Glassdoor'un
-    desteklemediği bir ülke) tüm taramayı istisna fırlatarak durdurabiliyor.
-    Bunu önlemek için önce hepsini tek seferde denenir; hata olursa
-    platformlar tek tek denenip başarılı olanların sonuçları birleştirilir,
-    başarısız olanlar (site, hata mesajı) listesi olarak döndürülür.
+    JobSpy'ın kendi toplu (`scrape_jobs(site_name=[...])`) çağrısı, bir
+    platform/ülke kombinasyonu desteklenmediğinde (ör. Glassdoor'un
+    olmadığı bir ülke) tüm taramayı istisna fırlatarak durdurur ve o ana
+    kadar başarıyla çekilmiş diğer platformların sonuçlarını da kaybeder.
+    Bunu önlemek için her platform ayrı bir `scrape_jobs` çağrısıyla,
+    kendi thread havuzumuzda paralel olarak taranır: bir platform hata
+    verirse yalnızca o platform atlanır, diğerleri yeniden istek atılmadan
+    korunur. Başarısız platformlar (site, hata mesajı) listesi olarak
+    döndürülür.
     """
 
-    def _scrape(site_list: list[str]):
+    def _scrape_one(site: str):
         return scrape_jobs(
-            site_name=site_list,
+            site_name=[site],
             search_term=search_term,
             google_search_term=search_term,
             location=location,
@@ -118,20 +122,18 @@ def search_jobs(
             linkedin_fetch_description=linkedin_fetch_description,
         )
 
-    try:
-        return _scrape(sites), []
-    except Exception:
-        pass
-
     frames = []
     errors: list[tuple[str, str]] = []
-    for site in sites:
-        try:
-            df = _scrape([site])
-            if df is not None and not df.empty:
-                frames.append(df)
-        except Exception as e:
-            errors.append((site, str(e)))
+    with ThreadPoolExecutor(max_workers=max(len(sites), 1)) as executor:
+        future_to_site = {executor.submit(_scrape_one, site): site for site in sites}
+        for future in as_completed(future_to_site):
+            site = future_to_site[future]
+            try:
+                df = future.result()
+                if df is not None and not df.empty:
+                    frames.append(df)
+            except Exception as e:
+                errors.append((site, str(e)))
 
     if not frames:
         return pd.DataFrame(), errors
