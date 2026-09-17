@@ -1,0 +1,191 @@
+"""İş Arama Asistanı — web arayüzü.
+
+Çalıştırma:
+    streamlit run streamlit_app.py
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
+from pydantic import ValidationError
+
+from app.cover_letter import generate_cover_letter
+from app.cv_generator import build_cv
+from app.job_search import ALL_SITES, STATUSES, get_stats, list_jobs, save_jobs, search_jobs, set_status
+from app.models import Profile
+
+PROFILE_PATH = Path("data/profile.json")
+EXAMPLE_PROFILE_PATH = Path("data/profile.example.json")
+DB_PATH = Path("data/jobs.db")
+
+st.set_page_config(page_title="İş Arama Asistanı", page_icon="📋", layout="wide")
+
+
+def load_profile_text() -> str:
+    path = PROFILE_PATH if PROFILE_PATH.exists() else EXAMPLE_PROFILE_PATH
+    return path.read_text(encoding="utf-8")
+
+
+def try_load_profile() -> Profile | None:
+    if not PROFILE_PATH.exists():
+        return None
+    try:
+        return Profile.model_validate(json.loads(PROFILE_PATH.read_text(encoding="utf-8")))
+    except (json.JSONDecodeError, ValidationError):
+        return None
+
+
+st.title("📋 İş Arama Asistanı")
+st.caption("Merkezi profilinden ATS-dostu CV üret, çoklu platformdan iş ara, başvurularını takip et.")
+
+tab_profile, tab_cv, tab_search, tab_tracker, tab_letter = st.tabs(
+    ["Profil", "CV Oluştur", "İş Ara", "Başvurularım", "Ön Yazı"]
+)
+
+# ---------------------------------------------------------------- Profil ---
+with tab_profile:
+    st.subheader("Merkezi Profil")
+    st.caption(
+        "Tüm CV ve eşleşme skoru hesaplamaları bu JSON'dan beslenir. "
+        "Alan tanımları için app/models.py içindeki şemaya bakabilirsin."
+    )
+    profile_text = st.text_area("profile.json", value=load_profile_text(), height=420)
+
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("Kaydet", type="primary"):
+            try:
+                data = json.loads(profile_text)
+                Profile.model_validate(data)
+            except json.JSONDecodeError as e:
+                st.error(f"Geçersiz JSON: {e}")
+            except ValidationError as e:
+                st.error(f"Profil şeması hatalı:\n{e}")
+            else:
+                PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+                PROFILE_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+                st.success(f"Kaydedildi: {PROFILE_PATH}")
+
+# --------------------------------------------------------------- CV Oluştur -
+with tab_cv:
+    st.subheader("ATS-Dostu PDF CV")
+    profile = try_load_profile()
+    if profile is None:
+        st.warning("Önce 'Profil' sekmesinden geçerli bir profil kaydet.")
+    else:
+        st.write(f"**{profile.contact.full_name}** — {profile.contact.title}")
+        if st.button("PDF Oluştur", type="primary"):
+            pdf = build_cv(profile)
+            pdf_bytes = bytes(pdf.output())
+            st.session_state["cv_pdf_bytes"] = pdf_bytes
+            st.success("CV oluşturuldu.")
+        if "cv_pdf_bytes" in st.session_state:
+            st.download_button(
+                "CV'yi indir (PDF)",
+                data=st.session_state["cv_pdf_bytes"],
+                file_name=f"{profile.contact.full_name.replace(' ', '_')}_CV.pdf",
+                mime="application/pdf",
+            )
+
+# ------------------------------------------------------------------ İş Ara --
+with tab_search:
+    st.subheader("Çoklu Platformdan İş İlanı Ara")
+    with st.form("search_form"):
+        c1, c2 = st.columns(2)
+        search_term = c1.text_input("Pozisyon / anahtar kelime", value="Backend Developer")
+        location = c2.text_input("Konum", value="Istanbul, Turkey")
+        sites = st.multiselect("Platformlar", options=ALL_SITES, default=ALL_SITES)
+        c3, c4, c5 = st.columns(3)
+        results = c3.number_input("Platform başına sonuç", min_value=1, max_value=50, value=10)
+        hours_old = c4.number_input("Son X saat (0 = sınırsız)", min_value=0, value=0)
+        country_indeed = c5.text_input("Indeed ülke", value="turkey")
+        linkedin_desc = st.checkbox(
+            "LinkedIn açıklamalarını da çek (eşleşme skoru için gerekir, daha yavaştır)",
+            value=False,
+        )
+        submitted = st.form_submit_button("Ara", type="primary")
+
+    if submitted:
+        profile = try_load_profile()
+        with st.spinner("İlanlar taranıyor..."):
+            df, errors = search_jobs(
+                search_term,
+                location or None,
+                sites,
+                int(results),
+                int(hours_old) or None,
+                country_indeed,
+                linkedin_desc,
+            )
+        for site, error in errors:
+            st.warning(f"{site} taranamadı: {error}")
+        if df is None or df.empty:
+            st.info("Sonuç bulunamadı.")
+        else:
+            new_count = save_jobs(df, DB_PATH, profile)
+            st.success(f"{len(df)} ilan tarandı, {new_count} yeni ilan kaydedildi.")
+            show_cols = [c for c in ["site", "title", "company", "location", "job_url"] if c in df.columns]
+            st.dataframe(df[show_cols], use_container_width=True, hide_index=True)
+
+# ------------------------------------------------------------ Başvurularım --
+with tab_tracker:
+    st.subheader("Başvuru Takibi")
+    if not DB_PATH.exists():
+        st.info("Henüz taranmış ilan yok. Önce 'İş Ara' sekmesinden arama yap.")
+    else:
+        stats = get_stats(DB_PATH)
+        cols = st.columns(len(STATUSES) + 1)
+        cols[0].metric("Toplam", stats["total"])
+        for i, s in enumerate(STATUSES, start=1):
+            cols[i].metric(s.capitalize(), stats["by_status"].get(s, 0))
+
+        status_filter = st.selectbox("Duruma göre filtrele", options=["(hepsi)"] + STATUSES)
+        rows = list_jobs(
+            DB_PATH,
+            limit=200,
+            status=None if status_filter == "(hepsi)" else status_filter,
+        )
+        if not rows:
+            st.info("Kayıt bulunamadı.")
+        else:
+            df = pd.DataFrame([dict(r) for r in rows])
+            st.dataframe(
+                df[["title", "company", "site", "location", "match_score", "status", "job_url"]],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.markdown("**Durum güncelle**")
+            options = {f"{r['title']} — {r['company']} ({r['job_url']})": r["job_url"] for r in rows}
+            selected_label = st.selectbox("İlan seç", options=list(options.keys()))
+            new_status = st.selectbox("Yeni durum", options=STATUSES)
+            notes = st.text_input("Not (opsiyonel)")
+            if st.button("Güncelle"):
+                job_url = options[selected_label]
+                set_status(DB_PATH, job_url, new_status, notes or None)
+                st.success("Güncellendi.")
+                st.rerun()
+
+# ------------------------------------------------------------------ Ön Yazı -
+with tab_letter:
+    st.subheader("Ön Yazı Taslağı")
+    profile = try_load_profile()
+    if profile is None:
+        st.warning("Önce 'Profil' sekmesinden geçerli bir profil kaydet.")
+    else:
+        job_title = st.text_input("Pozisyon adı", value="Backend Developer")
+        company = st.text_input("Şirket adı", value="")
+        job_description = st.text_area("İlan açıklaması (opsiyonel, eşleşen yetenekleri öne çıkarmak için)", height=150)
+        if st.button("Taslak Oluştur", type="primary"):
+            if not company:
+                st.error("Şirket adını gir.")
+            else:
+                letter = generate_cover_letter(profile, job_title, company, job_description or None)
+                st.session_state["cover_letter_text"] = letter
+        if "cover_letter_text" in st.session_state:
+            edited = st.text_area("Taslak (düzenlenebilir)", value=st.session_state["cover_letter_text"], height=300)
+            st.download_button("Metni indir (.txt)", data=edited, file_name="on_yazi.txt", mime="text/plain")

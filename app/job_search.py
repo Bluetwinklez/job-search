@@ -24,6 +24,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pandas as pd
 from jobspy import scrape_jobs
 
 from app.models import Profile
@@ -40,6 +41,8 @@ ALL_SITES = [
 
 DEFAULT_DB_PATH = Path("data/jobs.db")
 
+STATUSES = ["yeni", "başvuruldu", "mülakat", "reddedildi", "teklif"]
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
     job_url TEXT PRIMARY KEY,
@@ -51,9 +54,20 @@ CREATE TABLE IF NOT EXISTS jobs (
     date_posted TEXT,
     description TEXT,
     match_score REAL,
-    fetched_at TEXT
+    fetched_at TEXT,
+    status TEXT NOT NULL DEFAULT 'yeni',
+    notes TEXT
 );
 """
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(SCHEMA)
+    existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+    if "status" not in existing_cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN status TEXT NOT NULL DEFAULT 'yeni'")
+    if "notes" not in existing_cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN notes TEXT")
 
 
 def _profile_keywords(profile: Profile) -> set[str]:
@@ -82,17 +96,46 @@ def search_jobs(
     country_indeed: str = "turkey",
     linkedin_fetch_description: bool = False,
 ):
-    return scrape_jobs(
-        site_name=sites,
-        search_term=search_term,
-        google_search_term=search_term,
-        location=location,
-        results_wanted=results_wanted,
-        hours_old=hours_old,
-        description_format="markdown",
-        country_indeed=country_indeed,
-        linkedin_fetch_description=linkedin_fetch_description,
-    )
+    """Verilen platformları tarar.
+
+    JobSpy bazı platform/ülke kombinasyonlarında (ör. Glassdoor'un
+    desteklemediği bir ülke) tüm taramayı istisna fırlatarak durdurabiliyor.
+    Bunu önlemek için önce hepsini tek seferde denenir; hata olursa
+    platformlar tek tek denenip başarılı olanların sonuçları birleştirilir,
+    başarısız olanlar (site, hata mesajı) listesi olarak döndürülür.
+    """
+
+    def _scrape(site_list: list[str]):
+        return scrape_jobs(
+            site_name=site_list,
+            search_term=search_term,
+            google_search_term=search_term,
+            location=location,
+            results_wanted=results_wanted,
+            hours_old=hours_old,
+            description_format="markdown",
+            country_indeed=country_indeed,
+            linkedin_fetch_description=linkedin_fetch_description,
+        )
+
+    try:
+        return _scrape(sites), []
+    except Exception:
+        pass
+
+    frames = []
+    errors: list[tuple[str, str]] = []
+    for site in sites:
+        try:
+            df = _scrape([site])
+            if df is not None and not df.empty:
+                frames.append(df)
+        except Exception as e:
+            errors.append((site, str(e)))
+
+    if not frames:
+        return pd.DataFrame(), errors
+    return pd.concat(frames, ignore_index=True), errors
 
 
 def _clean(value) -> str | None:
@@ -105,7 +148,7 @@ def save_jobs(df, db_path: Path, profile: Profile | None = None) -> int:
     keywords = _profile_keywords(profile) if profile else set()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
-    conn.execute(SCHEMA)
+    _ensure_schema(conn)
 
     new_count = 0
     fetched_at = datetime.now(timezone.utc).isoformat()
@@ -142,19 +185,75 @@ def save_jobs(df, db_path: Path, profile: Profile | None = None) -> int:
     return new_count
 
 
-def list_jobs(db_path: Path, limit: int = 20, min_score: float | None = None):
+def list_jobs(
+    db_path: Path,
+    limit: int = 20,
+    min_score: float | None = None,
+    status: str | None = None,
+):
+    if not db_path.exists():
+        return []
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    query = "SELECT job_url, site, title, company, location, match_score, fetched_at FROM jobs"
+    _ensure_schema(conn)
+    query = (
+        "SELECT job_url, site, title, company, location, job_type, date_posted, "
+        "match_score, status, notes, fetched_at FROM jobs"
+    )
+    clauses = []
     params: list = []
     if min_score is not None:
-        query += " WHERE match_score >= ?"
+        clauses.append("match_score >= ?")
         params.append(min_score)
+    if status is not None:
+        clauses.append("status = ?")
+        params.append(status)
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
     query += " ORDER BY fetched_at DESC LIMIT ?"
     params.append(limit)
     rows = conn.execute(query, params).fetchall()
     conn.close()
     return rows
+
+
+def get_job(db_path: Path, job_url: str):
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    _ensure_schema(conn)
+    row = conn.execute("SELECT * FROM jobs WHERE job_url = ?", (job_url,)).fetchone()
+    conn.close()
+    return row
+
+
+def set_status(db_path: Path, job_url: str, status: str, notes: str | None = None) -> bool:
+    if status not in STATUSES:
+        raise ValueError(f"Geçersiz durum: {status!r}. Geçerli değerler: {', '.join(STATUSES)}")
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    if notes is None:
+        cur = conn.execute("UPDATE jobs SET status = ? WHERE job_url = ?", (status, job_url))
+    else:
+        cur = conn.execute(
+            "UPDATE jobs SET status = ?, notes = ? WHERE job_url = ?", (status, notes, job_url)
+        )
+    conn.commit()
+    updated = cur.rowcount > 0
+    conn.close()
+    return updated
+
+
+def get_stats(db_path: Path) -> dict:
+    if not db_path.exists():
+        return {"total": 0, "by_status": {s: 0 for s in STATUSES}}
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    rows = conn.execute("SELECT status, COUNT(*) FROM jobs GROUP BY status").fetchall()
+    conn.close()
+    by_status = {s: 0 for s in STATUSES}
+    for status, count in rows:
+        by_status[status] = count
+    return {"total": sum(by_status.values()), "by_status": by_status}
 
 
 def main() -> None:
@@ -183,7 +282,7 @@ def main() -> None:
     if args.profile:
         profile = Profile.model_validate(json.loads(args.profile.read_text(encoding="utf-8")))
 
-    df = search_jobs(
+    df, errors = search_jobs(
         args.search_term,
         args.location,
         sites,
@@ -192,6 +291,9 @@ def main() -> None:
         args.country_indeed,
         args.linkedin_descriptions,
     )
+    for site, error in errors:
+        print(f"Uyarı: {site} taranamadı ({error})")
+
     if df is None or df.empty:
         print("Sonuç bulunamadı.")
         return
