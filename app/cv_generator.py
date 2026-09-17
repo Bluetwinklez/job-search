@@ -35,8 +35,10 @@ MARGIN = 18
 class CVDocument(FPDF):
     def section_title(self, title: str) -> None:
         self.ln(3)
-        band_y = self.get_y()
         band_h = 7.5
+        if self.get_y() + band_h > self.page_break_trigger:
+            self.add_page()
+        band_y = self.get_y()
         self.set_fill_color(*ACCENT_TINT)
         self.rect(self.l_margin, band_y, self.w - self.l_margin - self.r_margin, band_h, "F")
         self.set_xy(self.l_margin + 2, band_y)

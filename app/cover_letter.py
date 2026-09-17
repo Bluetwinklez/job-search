@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 from pathlib import Path
 
+from app.matching import contains_keyword
 from app.models import Profile
 
 
@@ -23,8 +23,7 @@ def _matching_skills(profile: Profile, job_description: str | None, top_n: int =
     all_skills = [item for group in profile.skills for item in group.items]
     if not job_description:
         return all_skills[:top_n]
-    text = job_description.lower()
-    matched = [s for s in all_skills if re.search(rf"(?<!\w){re.escape(s.lower())}(?!\w)", text)]
+    matched = [s for s in all_skills if contains_keyword(job_description, s)]
     ordered = matched + [s for s in all_skills if s not in matched]
     return ordered[:top_n]
 
@@ -41,13 +40,20 @@ def generate_cover_letter(
     latest_role = profile.experience[0] if profile.experience else None
     experience_line = ""
     if latest_role:
-        experience_line = (
-            f"Halihazırda {latest_role.company} bünyesinde {latest_role.role} olarak çalışıyor, "
-            f"{', '.join(latest_role.tech_stack[:4])} gibi teknolojilerle üretim ortamına yönelik "
-            f"projeler geliştiriyorum."
-            if latest_role.tech_stack
-            else f"Halihazırda {latest_role.company} bünyesinde {latest_role.role} olarak çalışıyorum."
+        is_current = latest_role.end_date is None
+        lead_in = (
+            f"Halihazırda {latest_role.company} bünyesinde {latest_role.role} olarak çalışıyorum"
+            if is_current
+            else f"{latest_role.company} bünyesinde {latest_role.role} olarak çalıştım"
         )
+        if latest_role.tech_stack:
+            verb = "geliştiriyorum" if is_current else "geliştirdim"
+            experience_line = (
+                f"{lead_in}; {', '.join(latest_role.tech_stack[:4])} gibi teknolojilerle üretim "
+                f"ortamına yönelik projeler {verb}."
+            )
+        else:
+            experience_line = f"{lead_in}."
 
     highlight = ""
     if latest_role and latest_role.highlights:

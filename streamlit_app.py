@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from app.cover_letter import generate_cover_letter
 from app.cv_generator import build_cv
-from app.job_search import ALL_SITES, STATUSES, get_stats, list_jobs, save_jobs, search_jobs, set_status
+from app.job_search import ALL_SITES, STATUSES, get_job, get_stats, list_jobs, save_jobs, search_jobs, set_status
 from app.models import Profile
 
 PROFILE_PATH = Path("data/profile.json")
@@ -177,9 +177,33 @@ with tab_letter:
     if profile is None:
         st.warning("Önce 'Profil' sekmesinden geçerli bir profil kaydet.")
     else:
-        job_title = st.text_input("Pozisyon adı", value="Backend Developer")
-        company = st.text_input("Şirket adı", value="")
-        job_description = st.text_area("İlan açıklaması (opsiyonel, eşleşen yetenekleri öne çıkarmak için)", height=150)
+        st.session_state.setdefault("letter_title", "Backend Developer")
+        st.session_state.setdefault("letter_company", "")
+        st.session_state.setdefault("letter_description", "")
+
+        if DB_PATH.exists():
+            tracked_rows = list_jobs(DB_PATH, limit=100)
+            if tracked_rows:
+                label_to_url = {f"{r['title']} — {r['company']}": r["job_url"] for r in tracked_rows}
+                selected_label = st.selectbox(
+                    "Kayıtlı bir ilandan doldur (opsiyonel)",
+                    options=["(manuel gir)"] + list(label_to_url.keys()),
+                )
+                if selected_label != "(manuel gir)" and st.button("Bu ilandan doldur"):
+                    job = get_job(DB_PATH, label_to_url[selected_label])
+                    if job:
+                        st.session_state["letter_title"] = job["title"] or ""
+                        st.session_state["letter_company"] = job["company"] or ""
+                        st.session_state["letter_description"] = job["description"] or ""
+                        st.rerun()
+
+        job_title = st.text_input("Pozisyon adı", key="letter_title")
+        company = st.text_input("Şirket adı", key="letter_company")
+        job_description = st.text_area(
+            "İlan açıklaması (opsiyonel, eşleşen yetenekleri öne çıkarmak için)",
+            key="letter_description",
+            height=150,
+        )
         if st.button("Taslak Oluştur", type="primary"):
             if not company:
                 st.error("Şirket adını gir.")
