@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Kişisel veriler ve üretilen çıktılar (repoya girmemeli)
+data/profile.json
+data/jobs.db
+*.pdf
