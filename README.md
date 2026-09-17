@@ -17,6 +17,7 @@ tek bir web arayüzünden kullanılabilir.
 - [x] İlana özel ön yazı taslağı (`app/cover_letter.py`)
 - [x] Web arayüzü (`streamlit_app.py`)
 - [x] İlana özel CV uyarlama (`app/cv_tailor.py`, Claude API ile)
+- [x] Var olan bir CV'yi ATS-dostu şekilde yeniden yazma (`app/cv_rewrite.py`, Claude API ile)
 
 ## Kurulum
 
@@ -160,3 +161,27 @@ python -m app.cv_tailor \
 
 Web arayüzünde bu özelliğe **CV Oluştur** sekmesindeki "İlana özel uyarla
 (Claude ile)" bölümünden erişilebilir.
+
+## 6. Var Olan Bir CV'yi Yeniden Yazma (Claude API ile)
+
+Elindeki mevcut bir CV'yi (PDF'ten kopyaladığın düz metin ya da `.txt`/`.pdf`
+dosyası) verirsin; Claude bunu `app.models.Profile` şemasına uygun, ATS
+tarafından hatasız ayrıştırılacak ve işe alım uzmanının olumlu
+değerlendireceği şekilde yeniden yazılmış bir profile dönüştürür. Yeni
+deneyim/başarı/şirket **uydurulmaz** — yalnızca CV'de zaten var olan
+bilgiler daha güçlü, somut bir dille yeniden ifade edilir ve mantıklı
+kategorilere ayrılır.
+
+Çalışması için ortamda `ANTHROPIC_API_KEY` tanımlı olmalı.
+
+```bash
+python -m app.cv_rewrite \
+  --input ham_cv.txt \
+  --output data/profile.json \
+  --pdf cv_yeniden_yazilmis.pdf
+```
+
+Web arayüzünde **Profil** sekmesindeki "Var olan bir CV'yi yükle ve
+yeniden yaz (Claude ile)" bölümünden `.pdf`/`.txt` yükleyebilir ya da
+metni doğrudan yapıştırabilirsin; sonuç profil düzenleyicisine
+otomatik doldurulur, incelendikten sonra "Kaydet"e basman yeterli.
