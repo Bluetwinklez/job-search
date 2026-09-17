@@ -1,0 +1,60 @@
+{
+  "contact": {
+    "full_name": "Ahmet Yılmaz",
+    "title": "Backend Yazılım Geliştirici",
+    "email": "ahmet.yilmaz@example.com",
+    "phone": "+90 555 123 45 67",
+    "location": "İstanbul, Türkiye",
+    "linkedin": "linkedin.com/in/ahmetyilmaz",
+    "github": "github.com/ahmetyilmaz",
+    "website": null
+  },
+  "summary": "5 yıllık deneyime sahip, ölçeklenebilir backend sistemleri ve API tasarımı konusunda uzmanlaşmış yazılım geliştirici. Python ve Go ekosisteminde derin bilgi, mikroservis mimarileri kurma tecrübesi.",
+  "experience": [
+    {
+      "company": "Örnek Teknoloji A.Ş.",
+      "role": "Kıdemli Backend Geliştirici",
+      "start_date": "2022-03",
+      "end_date": null,
+      "location": "İstanbul (Hibrit)",
+      "highlights": [
+        "Günlük 2M+ istek karşılayan API gateway'inin yeniden tasarımını yönetti, p99 gecikmeyi %40 azalttı.",
+        "5 kişilik ekiple mikroservis mimarisine geçişi liderlik etti.",
+        "CI/CD pipeline'ını yeniden kurarak dağıtım süresini 25 dakikadan 6 dakikaya indirdi."
+      ],
+      "tech_stack": ["Python", "FastAPI", "PostgreSQL", "Docker", "Kubernetes"]
+    },
+    {
+      "company": "Başlangıç Yazılım Ltd.",
+      "role": "Yazılım Geliştirici",
+      "start_date": "2019-06",
+      "end_date": "2022-02",
+      "location": "İstanbul",
+      "highlights": [
+        "E-ticaret platformunun ödeme servisini sıfırdan geliştirdi.",
+        "Test kapsamını %35'ten %85'e çıkardı."
+      ],
+      "tech_stack": ["Django", "Celery", "Redis", "MySQL"]
+    }
+  ],
+  "education": [
+    {
+      "school": "İstanbul Teknik Üniversitesi",
+      "degree": "Lisans",
+      "field": "Bilgisayar Mühendisliği",
+      "start_date": "2015",
+      "end_date": "2019"
+    }
+  ],
+  "skills": [
+    {
+      "category": "Diller",
+      "items": ["Python", "Go", "SQL", "TypeScript"]
+    },
+    {
+      "category": "Araçlar",
+      "items": ["Docker", "Kubernetes", "AWS", "Git", "PostgreSQL"]
+    }
+  ],
+  "languages": ["Türkçe (Anadil)", "İngilizce (İleri Seviye)"]
+}
