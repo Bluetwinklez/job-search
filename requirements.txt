@@ -5,3 +5,4 @@ python-jobspy>=1.1
 pandas>=2.0
 streamlit>=1.60
 anthropic>=1.6
+pypdf>=6.0

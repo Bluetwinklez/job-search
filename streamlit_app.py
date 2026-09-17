@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from app.cover_letter import generate_cover_letter
 from app.cv_generator import build_cv
+from app.cv_rewrite import rewrite_cv
 from app.cv_tailor import tailor_profile
 from app.job_search import ALL_SITES, STATUSES, get_job, get_stats, list_jobs, save_jobs, search_jobs, set_status
 from app.models import Profile
@@ -54,7 +55,45 @@ with tab_profile:
         "Tüm CV ve eşleşme skoru hesaplamaları bu JSON'dan beslenir. "
         "Alan tanımları için app/models.py içindeki şemaya bakabilirsin."
     )
-    profile_text = st.text_area("profile.json", value=load_profile_text(), height=420)
+
+    with st.expander("Var olan bir CV'yi yükle ve yeniden yaz (Claude ile)"):
+        st.caption(
+            "Elindeki CV'yi (.pdf veya .txt) yükle ya da metnini yapıştır. Claude yeni bir "
+            "deneyim/başarı uydurmaz — yalnızca CV'de zaten var olan bilgileri ATS ve işe "
+            "alım uzmanının olumlu değerlendireceği şekilde yeniden yazar ve yapılandırır. "
+            "Çalışması için ortamda ANTHROPIC_API_KEY tanımlı olmalı."
+        )
+        uploaded_cv = st.file_uploader("CV dosyası (.pdf, .txt)", type=["pdf", "txt"])
+        pasted_cv = st.text_area("veya CV metnini buraya yapıştır", height=150, key="raw_cv_paste")
+        if st.button("CV'yi Yeniden Yaz", type="primary"):
+            raw_text = ""
+            if uploaded_cv is not None:
+                if uploaded_cv.name.lower().endswith(".pdf"):
+                    import pypdf
+
+                    reader = pypdf.PdfReader(uploaded_cv)
+                    raw_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+                else:
+                    raw_text = uploaded_cv.read().decode("utf-8", errors="ignore")
+            elif pasted_cv.strip():
+                raw_text = pasted_cv
+
+            if not raw_text.strip():
+                st.error("Bir dosya yükle veya CV metnini yapıştır.")
+            else:
+                try:
+                    with st.spinner("Claude CV'yi yeniden yazıyor..."):
+                        rewritten = rewrite_cv(raw_text)
+                    st.session_state["profile_json_editor"] = json.dumps(
+                        rewritten.model_dump(), ensure_ascii=False, indent=2
+                    )
+                    st.success("CV yeniden yazıldı. Aşağıdaki editörde inceleyip 'Kaydet'e basabilirsin.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Yeniden yazma başarısız oldu: {e}")
+
+    st.session_state.setdefault("profile_json_editor", load_profile_text())
+    profile_text = st.text_area("profile.json", key="profile_json_editor", height=420)
 
     col1, col2 = st.columns([1, 4])
     with col1:
