@@ -3,8 +3,9 @@
 Merkezi bir profilden ATS-dostu (başvuru takip sistemi tarafından kolayca
 okunabilen) PDF CV üreten; LinkedIn, Indeed, Glassdoor, Google,
 ZipRecruiter, Bayt ve Naukri'den aynı anda iş ilanı tarayıp eşleştirme
-skoruyla kaydeden; başvuru durumunu takip eden ve ilana özel ön yazı
-taslağı üreten bir araç seti. Hepsi tek bir web arayüzünden kullanılabilir.
+skoruyla kaydeden; başvuru durumunu takip eden; ilana özel ön yazı taslağı
+ve (Claude API ile) ilana özel uyarlanmış CV üreten bir araç seti. Hepsi
+tek bir web arayüzünden kullanılabilir.
 
 ## Yol Haritası
 
@@ -15,7 +16,7 @@ taslağı üreten bir araç seti. Hepsi tek bir web arayüzünden kullanılabili
 - [x] Başvuru takibi (durum: yeni/başvuruldu/mülakat/reddedildi/teklif) (`app/tracker.py`)
 - [x] İlana özel ön yazı taslağı (`app/cover_letter.py`)
 - [x] Web arayüzü (`streamlit_app.py`)
-- [ ] İlana özel CV uyarlama (LLM ile)
+- [x] İlana özel CV uyarlama (`app/cv_tailor.py`, Claude API ile)
 
 ## Kurulum
 
@@ -136,3 +137,26 @@ python -m app.cover_letter \
   --job-description-file ilan.txt \
   --output cover_letter.txt
 ```
+
+## 5. İlana Özel CV Uyarlama (Claude API ile)
+
+Bir ilan açıklaması verildiğinde Claude, profildeki **gerçekleri değiştirmeden**
+yalnızca şunlara karar verir: (a) bu ilana özel kısa bir özet metni, (b) her
+deneyimdeki maddelerin/teknolojilerin ve yetenek listelerinin ilanla alaka
+düzeyine göre yeniden sıralanması. Yeni bir deneyim, yetenek ya da başarı
+uydurulmaz — model yalnızca var olanlar arasından öne çıkarılacakları seçer,
+ardından sonuç `app.cv_generator.build_cv` ile aynı ATS-dostu PDF'e dönüştürülür.
+Ayrıca ilanda geçip profilde bulunmayan anahtar kelimeler ayrıca listelenir.
+
+Çalışması için ortamda `ANTHROPIC_API_KEY` tanımlı olmalı (veya `ant auth login`
+ile kaydedilmiş bir profil).
+
+```bash
+python -m app.cv_tailor \
+  --profile data/profile.json \
+  --job-description-file ilan.txt \
+  --output cv_tailored.pdf
+```
+
+Web arayüzünde bu özelliğe **CV Oluştur** sekmesindeki "İlana özel uyarla
+(Claude ile)" bölümünden erişilebilir.
