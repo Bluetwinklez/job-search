@@ -299,11 +299,45 @@ with tab_tracker:
 
             new_status = st.selectbox("Yeni durum", options=STATUSES)
             notes = st.text_input("Not (opsiyonel)")
+
+            if new_status == "mülakat" or (selected_job_data and selected_job_data["status"] == "mülakat"):
+                with st.expander("📅 Mülakatı Takvime Ekle (.ics İndir)", expanded=True):
+                    col_m1, col_m2 = st.columns(2)
+                    interview_date = col_m1.date_input("Mülakat Tarihi", key="interview_date")
+                    interview_time = col_m2.time_input("Mülakat Saati", key="interview_time")
+                    meeting_link = st.text_input(
+                        "Toplantı Linki veya Konum",
+                        placeholder="https://meet.google.com/... veya Ofis Adresi",
+                        key="meeting_link",
+                    )
+                    duration = st.slider("Tahmini Süre (dakika)", min_value=15, max_value=120, value=45, step=15)
+
+                    if selected_job_data:
+                        from datetime import datetime
+                        from app.calendar_export import generate_ics_event
+
+                        dt_start = datetime.combine(interview_date, interview_time)
+                        ics_content = generate_ics_event(
+                            title=selected_job_data["title"] or "İş Mülakatı",
+                            company=selected_job_data["company"] or "",
+                            start_time=dt_start,
+                            duration_minutes=duration,
+                            location_or_url=meeting_link or None,
+                            notes=notes or selected_job_data["notes"],
+                        )
+                        st.download_button(
+                            "📅 Takvim Dosyasını İndir (.ics)",
+                            data=ics_content,
+                            file_name=f"mulakat_{(selected_job_data['company'] or 'etkinlik').replace(' ', '_')}.ics",
+                            mime="text/calendar",
+                        )
+
             if st.button("Güncelle"):
                 job_url = options[selected_label]
                 set_status(DB_PATH, job_url, new_status, notes or None)
                 st.success("Güncellendi.")
                 st.rerun()
+
 
 # ------------------------------------------------------------------ Ön Yazı -
 with tab_letter:
