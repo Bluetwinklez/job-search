@@ -110,6 +110,7 @@ _JOBS_EXTRA_COLUMNS = {
     "currency": "TEXT",
     "salary_interval": "TEXT",
     "is_remote": "INTEGER",
+    "interview_at": "TEXT",
 }
 
 
@@ -620,6 +621,45 @@ def delete_interview_question(db_path: Path, question_id: int) -> bool:
     deleted = cur.rowcount > 0
     conn.close()
     return deleted
+
+
+# ------------------------------------------------------------- Hatırlatıcılar -
+def set_interview_datetime(db_path: Path, job_url: str, interview_at: str | None) -> bool:
+    """Bir ilana mülakat tarih/saatini kaydeder (ISO 8601 metin, ör. datetime.isoformat())."""
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    cur = conn.execute("UPDATE jobs SET interview_at = ? WHERE job_url = ?", (interview_at, job_url))
+    conn.commit()
+    updated = cur.rowcount > 0
+    conn.close()
+    return updated
+
+
+def list_upcoming_interviews(db_path: Path, within_days: int = 3):
+    """Bugünden itibaren `within_days` gün içinde mülakatı olan ilanları döner (yakın->uzak sıralı)."""
+    if not db_path.exists():
+        return []
+    from datetime import timedelta
+
+    now = datetime.now()
+    cutoff = now + timedelta(days=within_days)
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    _ensure_schema(conn)
+    rows = conn.execute(
+        "SELECT * FROM jobs WHERE interview_at IS NOT NULL AND interview_at != '' ORDER BY interview_at ASC"
+    ).fetchall()
+    conn.close()
+
+    upcoming = []
+    for row in rows:
+        try:
+            dt = datetime.fromisoformat(row["interview_at"])
+        except (ValueError, TypeError):
+            continue
+        if now <= dt <= cutoff:
+            upcoming.append(row)
+    return upcoming
 
 
 def get_stats(db_path: Path) -> dict:
