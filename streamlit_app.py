@@ -785,6 +785,43 @@ with tab_tracker:
                 st.success("Güncellendi.")
                 st.rerun()
 
+            st.divider()
+            st.subheader("⚖️ İlan Karşılaştırma")
+            compare_labels = st.multiselect(
+                "Karşılaştırmak için 2-3 ilan seç",
+                options=list(options.keys()),
+                max_selections=3,
+            )
+            if len(compare_labels) >= 2:
+                compare_jobs = [get_job(DB_PATH, options[lbl]) for lbl in compare_labels]
+                compare_df = pd.DataFrame(
+                    [
+                        {
+                            "Alan": field_name,
+                            **{
+                                f"İlan {i + 1}": (job[field_key] if job[field_key] is not None else "-")
+                                for i, job in enumerate(compare_jobs)
+                            },
+                        }
+                        for field_key, field_name in [
+                            ("title", "Pozisyon"),
+                            ("company", "Şirket"),
+                            ("location", "Konum"),
+                            ("site", "Platform"),
+                            ("job_type", "Çalışma Tipi"),
+                            ("min_amount", "Min. Maaş"),
+                            ("max_amount", "Maks. Maaş"),
+                            ("currency", "Para Birimi"),
+                            ("is_remote", "Uzaktan mı"),
+                            ("match_score", "Eşleşme Skoru"),
+                            ("status", "Durum"),
+                        ]
+                    ]
+                )
+                st.dataframe(compare_df, use_container_width=True, hide_index=True)
+            elif compare_labels:
+                st.caption("Karşılaştırma için en az 2 ilan seç.")
+
 
 # ------------------------------------------------------------------ Ön Yazı -
 with tab_letter:
