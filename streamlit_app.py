@@ -810,9 +810,17 @@ with tab_tracker:
             selected_job_data = get_job(DB_PATH, selected_url)
             if selected_job_data:
                 is_fav = bool(selected_job_data["favorite"])
-                if st.button("💔 Favorilerden Çıkar" if is_fav else "⭐ Favorilere Ekle", key=f"fav_{selected_url}"):
+                c_act1, c_act2, c_act3 = st.columns([1, 1, 2])
+                if c_act1.button("💔 Favorilerden Çıkar" if is_fav else "⭐ Favorilere Ekle", key=f"fav_{selected_url}"):
                     toggle_favorite(DB_PATH, selected_url, not is_fav)
                     st.rerun()
+
+                c_act2.link_button("🌐 İlan Sayfası ↗️", selected_url)
+                if selected_job_data["status"] == "yeni":
+                    if c_act3.button("🚀 Başvuruldu Olarak İşaretle", type="primary", key=f"quick_app_btn_{selected_url}"):
+                        set_status(DB_PATH, selected_url, "başvuruldu")
+                        st.success("İlan durumu 'Başvuruldu' olarak güncellendi!")
+                        st.rerun()
 
                 prof_for_match = try_load_profile()
                 if prof_for_match:
