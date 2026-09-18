@@ -50,6 +50,9 @@ DB_PATH = Path("data/jobs.db")
 
 st.set_page_config(page_title="İş Arama Asistanı", page_icon="📋", layout="wide")
 
+from app.ui_theme import apply_theme
+apply_theme()
+
 profile_store.ensure_migrated()
 
 with st.sidebar:
