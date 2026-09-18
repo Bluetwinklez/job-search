@@ -17,6 +17,27 @@ streamlit run streamlit_app.py
 Tarayıcıda `http://localhost:8501` açılır. Beş sekme: **Profil**, **CV
 Oluştur**, **İş Ara**, **Başvurularım**, **Ön Yazı**.
 
+### Docker ile Tek Komutla Kurulum
+
+Python veya bağımlılık kurmadan, Docker yüklüyse tek komutla çalıştırabilirsin:
+
+```bash
+docker compose up --build
+```
+
+Tarayıcıda yine `http://localhost:8501` açılır. `data/` klasörü konteynere
+volume olarak bağlanır; profil, iş veritabanı ve profil geçmişin konteyner
+silinse/yeniden oluşturulsa bile kalıcı kalır. Claude API özelliklerini
+kullanmak istersen (opsiyonel) `ANTHROPIC_API_KEY` ortam değişkenini
+`docker compose` çalıştırmadan önce dışa aktarabilir ya da web arayüzündeki
+"Yapay Zeka Ayarları" bölümünden girebilirsin:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... docker compose up --build
+```
+
+Durdurmak için `docker compose down` yeterlidir; `data/` klasörü diskte kalır.
+
 ## Özellikler
 
 | Özellik | Modül | LLM gerekli mi? |
