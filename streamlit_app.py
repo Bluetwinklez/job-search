@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -17,7 +18,17 @@ from app.cover_letter import generate_cover_letter, render_letter_pdf
 from app.cv_generator import build_cv
 from app.cv_rewrite import rewrite_cv
 from app.cv_tailor import tailor_profile
-from app.job_search import ALL_SITES, STATUSES, get_job, get_stats, list_jobs, save_jobs, search_jobs, set_status
+from app.job_search import (
+    ALL_SITES,
+    STATUSES,
+    get_job,
+    get_matched_skills,
+    get_stats,
+    list_jobs,
+    save_jobs,
+    search_jobs,
+    set_status,
+)
 from app.models import Profile
 
 PROFILE_PATH = Path("data/profile.json")
@@ -25,6 +36,28 @@ EXAMPLE_PROFILE_PATH = Path("data/profile.example.json")
 DB_PATH = Path("data/jobs.db")
 
 st.set_page_config(page_title="İş Arama Asistanı", page_icon="📋", layout="wide")
+
+with st.sidebar:
+    st.header("⚙️ Yapay Zeka Ayarları")
+    st.caption("Claude API özelliklerini (CV yeniden yazma & uyarlama) kullanmak için anahtarınızı girebilirsiniz:")
+    api_key_input = st.text_input(
+        "Anthropic API Anahtarı",
+        type="password",
+        value=os.environ.get("ANTHROPIC_API_KEY", ""),
+        help="sk-ant-... ile başlayan anahtarınız.",
+    )
+    model_choice = st.selectbox(
+        "Claude Modeli",
+        options=[
+            "claude-3-7-sonnet-20250219",
+            "claude-3-5-sonnet-20241022",
+            "claude-3-5-haiku-20241022",
+        ],
+        index=0,
+    )
+    if api_key_input:
+        os.environ["ANTHROPIC_API_KEY"] = api_key_input
+
 
 
 def load_profile_text() -> str:
@@ -83,7 +116,7 @@ with tab_profile:
             else:
                 try:
                     with st.spinner("Claude CV'yi yeniden yazıyor..."):
-                        rewritten = rewrite_cv(raw_text)
+                        rewritten = rewrite_cv(raw_text, model=model_choice, api_key=api_key_input or None)
                     st.session_state["profile_json_editor"] = json.dumps(
                         rewritten.model_dump(), ensure_ascii=False, indent=2
                     )
@@ -91,6 +124,14 @@ with tab_profile:
                     st.rerun()
                 except Exception as e:
                     st.error(f"Yeniden yazma başarısız oldu: {e}")
+
+    active_prof = try_load_profile()
+    if active_prof:
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Deneyim", f"{len(active_prof.experience)} adet")
+        m2.metric("Eğitim", f"{len(active_prof.education)} okul")
+        m3.metric("Yetenek Grubu", f"{len(active_prof.skills)} kategori")
+        m4.metric("Sertifika & Proje", f"{len(active_prof.certifications) + len(active_prof.projects)} kayıt")
 
     st.session_state.setdefault("profile_json_editor", load_profile_text())
     profile_text = st.text_area("profile.json", key="profile_json_editor", height=420)
@@ -145,7 +186,9 @@ with tab_cv:
                 else:
                     try:
                         with st.spinner("Claude profili bu ilana göre uyarlıyor..."):
-                            tailored_profile, result = tailor_profile(profile, tailor_job_description)
+                            tailored_profile, result = tailor_profile(
+                                profile, tailor_job_description, model=model_choice, api_key=api_key_input or None
+                            )
                         pdf = build_cv(tailored_profile)
                         st.session_state["tailored_cv_pdf_bytes"] = bytes(pdf.output())
                         st.session_state["tailored_missing_keywords"] = result.missing_keywords
@@ -231,9 +274,29 @@ with tab_tracker:
                 hide_index=True,
             )
 
-            st.markdown("**Durum güncelle**")
+            col_csv, _ = st.columns([1, 3])
+            csv_data = df.to_csv(index=False).encode("utf-8-sig")
+            col_csv.download_button(
+                "📥 Başvuruları CSV olarak indir",
+                data=csv_data,
+                file_name="basvurularim.csv",
+                mime="text/csv",
+            )
+
+            st.markdown("**Durum güncelle & Detay Gör**")
             options = {f"{r['title']} — {r['company']} ({r['job_url']})": r["job_url"] for r in rows}
             selected_label = st.selectbox("İlan seç", options=list(options.keys()))
+
+            selected_url = options[selected_label]
+            selected_job_data = get_job(DB_PATH, selected_url)
+            if selected_job_data:
+                prof_for_match = try_load_profile()
+                if prof_for_match:
+                    full_text = f"{selected_job_data['title'] or ''} {selected_job_data['description'] or ''}"
+                    matched_kws = get_matched_skills(full_text, prof_for_match)
+                    if matched_kws:
+                        st.info(f"🎯 Bu ilanla eşleşen yetenekleriniz: **{', '.join(matched_kws)}**")
+
             new_status = st.selectbox("Yeni durum", options=STATUSES)
             notes = st.text_input("Not (opsiyonel)")
             if st.button("Güncelle"):
