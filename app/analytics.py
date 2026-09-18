@@ -49,6 +49,24 @@ def get_funnel_metrics(db_path: Path) -> Dict[str, Any]:
     }
 
 
+def get_status_distribution(db_path: Path) -> Dict[str, int]:
+    """Başvuru durumlarının (yeni, başvuruldu, mülakat, teklif, reddedildi) dağılımını döner."""
+    statuses = ["yeni", "başvuruldu", "mülakat", "teklif", "reddedildi"]
+    res = {s: 0 for s in statuses}
+    if not db_path.exists():
+        return res
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute("SELECT status, COUNT(*) FROM jobs WHERE status IS NOT NULL GROUP BY status")
+    for st, count in cur.fetchall():
+        if st in res:
+            res[st] = count
+        else:
+            res[st] = count
+    conn.close()
+    return res
+
+
 def get_platform_distribution(db_path: Path) -> Dict[str, int]:
     """İlanların platformlara (LinkedIn, Indeed, vb.) göre dağılımını döner."""
     if not db_path.exists():

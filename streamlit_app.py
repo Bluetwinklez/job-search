@@ -55,6 +55,13 @@ from app.job_search import (
     update_interview_answer,
 )
 from app.models import Profile
+from app.ui_components import (
+    calculate_profile_completeness,
+    render_breadcrumb_html,
+    render_cv_html_preview,
+    render_donut_chart_html,
+    render_empty_state_html,
+)
 
 EXAMPLE_PROFILE_PATH = Path("data/profile.example.json")
 DB_PATH = Path("data/jobs.db")
@@ -91,6 +98,23 @@ with st.sidebar:
                 st.session_state["_pending_active_profile"] = new_profile_name.strip()
                 st.session_state.pop("profile_json_editor", None)
                 st.rerun()
+
+    with st.expander("⚡ Hızlı Komutlar & Kısayollar", expanded=False):
+        st.caption("Sık kullanılan işlemlere tek tıkla ulaşın:")
+        q_term = st.text_input("Hızlı İlan Ara", placeholder="ör. Python Developer", key="quick_cmd_search_term")
+        if st.button("Hızlı Ara 🚀", key="quick_cmd_search_btn"):
+            if q_term.strip():
+                st.session_state["search_term_val"] = q_term.strip()
+                st.toast(f"'{q_term.strip()}' için arama hazırlanıyor...", icon="🔍")
+                st.rerun()
+        if "cv_pdf_bytes" in st.session_state:
+            st.download_button(
+                "📥 Hazır CV'yi İndir",
+                data=st.session_state["cv_pdf_bytes"],
+                file_name="Guncel_CV.pdf",
+                mime="application/pdf",
+                key="quick_cmd_cv_dl",
+            )
 
     st.divider()
     st.header("⚙️ Yapay Zeka Ayarları")
@@ -172,6 +196,36 @@ def try_load_profile() -> Profile | None:
 st.title("📋 İş Arama Asistanı")
 st.caption("Merkezi profilinden ATS-dostu CV üret, çoklu platformdan iş ara, başvurularını takip et.")
 
+current_prof = try_load_profile()
+completeness_score, missing_items = calculate_profile_completeness(current_prof)
+total_jobs_count = get_stats(DB_PATH)["total"] if DB_PATH.exists() else 0
+
+st.markdown(
+    render_breadcrumb_html(st.session_state["active_profile"], completeness_score, total_jobs_count),
+    unsafe_allow_html=True,
+)
+
+with st.expander("🧭 Hızlı Başlangıç Rehberi (Sihirbaz Modu)", expanded=(completeness_score < 40)):
+    w_c1, w_c2, w_c3 = st.columns(3)
+    w_c1.markdown("""
+    **1️⃣ Profilini Doldur**
+    - Ad, soyad ve e-posta
+    - En az 1 iş deneyimi & başarılar
+    - Teknik ve sosyal yetenekler
+    """)
+    w_c2.markdown("""
+    **2️⃣ CV'ni Oluştur & İncele**
+    - ATS skorunu gör
+    - Canlı önizleme ile kontrol et
+    - PDF veya Word (.docx) indir
+    """)
+    w_c3.markdown("""
+    **3️⃣ İş Ara & Başvur**
+    - 7 platformda tek tıkla tara
+    - Eşleşme skoruyla sırala
+    - Kanban panosunda yönet
+    """)
+
 tab_profile, tab_cv, tab_search, tab_tracker, tab_letter = st.tabs(
     ["Profil", "CV Oluştur", "İş Ara", "Başvurularım", "Ön Yazı"]
 )
@@ -183,6 +237,16 @@ with tab_profile:
         "Tüm CV ve eşleşme skoru hesaplamaları bu JSON'dan beslenir. "
         "Alan tanımları için app/models.py içindeki şemaya bakabilirsin."
     )
+
+    col_comp1, col_comp2 = st.columns([1, 3])
+    with col_comp1:
+        st.metric("Profil Doluluğu", f"%{completeness_score}")
+    with col_comp2:
+        st.progress(completeness_score / 100.0)
+        if missing_items:
+            with st.expander(f"📌 Eksik Kalan Adımlar ({len(missing_items)})", expanded=False):
+                for m in missing_items:
+                    st.caption(f"💡 {m}")
 
     with st.expander("Var olan bir CV'yi yükle ve yeniden yaz (Claude ile)"):
         st.caption(
@@ -330,12 +394,20 @@ with tab_profile:
                     st.session_state["profile_json_editor"] = json.dumps(
                         updated_profile.model_dump(), ensure_ascii=False, indent=2
                     )
+                    st.toast("Profil formu başarıyla kaydedildi!", icon="💾")
                     st.success("Profil formu başarıyla kaydedildi!")
                     st.rerun()
                 except ValidationError as err:
                     st.error(f"Profil doğrulama hatası:\n{err}")
                 except Exception as err:
                     st.error(f"Kaydetme başarısız: {err}")
+
+        c_rst1, _ = st.columns([1, 2])
+        if c_rst1.button("🔄 Değişiklikleri Sıfırla (Geri Al)", key="reset_profile_form_btn"):
+            st.session_state.pop(form_state_key, None)
+            st.session_state.pop("_last_form_loaded_for", None)
+            st.toast("Form son kaydedilen profile geri döndürüldü.", icon="🔄")
+            st.rerun()
 
     else:
         if st.session_state.get("_editor_loaded_for") != st.session_state["active_profile"]:
@@ -382,7 +454,14 @@ with tab_cv:
     st.subheader("ATS-Dostu PDF CV")
     profile = try_load_profile()
     if profile is None:
-        st.warning("Önce 'Profil' sekmesinden geçerli bir profil kaydet.")
+        st.markdown(
+            render_empty_state_html(
+                "Profil Kaydı Bulunamadı",
+                "CV oluşturabilmek için önce 'Profil' sekmesinden bilgilerinizi kaydedin.",
+                icon="📄",
+            ),
+            unsafe_allow_html=True,
+        )
     else:
         col_cv1, col_cv2 = st.columns([2, 1])
         with col_cv1:
@@ -394,6 +473,10 @@ with tab_cv:
                 format_func=lambda k: THEMES[k]["name"],
                 key="cv_theme_select",
             )
+
+        with st.expander("👁️ Canlı CV Önizlemesi (İndirmeden Gör)", expanded=False):
+            st.caption(f"Aşağıdaki önizleme seçili tema ({THEMES[selected_theme]['name']}) ile gerçek zamanlı oluşturulmuştur:")
+            st.markdown(render_cv_html_preview(profile, selected_theme), unsafe_allow_html=True)
 
         with st.expander("📷 Vesikalık fotoğraf ekle (opsiyonel)"):
             st.caption(
@@ -415,6 +498,7 @@ with tab_cv:
             pdf = build_cv(profile, theme=selected_theme, photo_path=photo_path)
             pdf_bytes = bytes(pdf.output())
             st.session_state["cv_pdf_bytes"] = pdf_bytes
+            st.toast(f"CV oluşturuldu ({THEMES[selected_theme]['name']}).", icon="📄")
             st.success(f"CV oluşturuldu ({THEMES[selected_theme]['name']}).")
         col_dl1, col_dl2 = st.columns(2)
         if "cv_pdf_bytes" in st.session_state:
@@ -655,7 +739,14 @@ with tab_search:
             st.warning(f"{site} taranamadı: {error}")
         log_search(DB_PATH, search_term, location, sites, 0 if df is None else len(df))
         if df is None or df.empty:
-            st.info("Sonuç bulunamadı.")
+            st.markdown(
+                render_empty_state_html(
+                    "İlan Bulunamadı",
+                    "Arama kriterlerinize uygun ilan bulunamadı. Lütfen anahtar kelimeleri veya platform filtrelerini genişletin.",
+                    icon="🔍",
+                ),
+                unsafe_allow_html=True,
+            )
         else:
             new_count = save_jobs(df, DB_PATH, profile)
             st.success(f"{len(df)} ilan tarandı, {new_count} yeni ilan kaydedildi.")
@@ -664,6 +755,22 @@ with tab_search:
                 if c in df.columns
             ]
             st.dataframe(df[show_cols], use_container_width=True, hide_index=True)
+
+            with st.expander("✍️ Bulunan Bir İlandan Ön Yazı Hazırla", expanded=False):
+                st.caption("Arama sonucundaki bir ilanın detaylarını doğrudan Ön Yazı sekmesine aktarabilirsiniz.")
+                options_search = {
+                    f"{row['title']} @ {row['company']} ({row['site']})": row["job_url"]
+                    for _, row in df.iterrows()
+                }
+                pick_job_label = st.selectbox("İlan seçin", options=list(options_search.keys()), key="search_to_letter_select")
+                if st.button("Ön Yazı Sekmesine Aktar ✍️", key="search_to_letter_btn"):
+                    picked_url = options_search[pick_job_label]
+                    picked_job = df[df["job_url"] == picked_url].iloc[0]
+                    st.session_state["letter_title"] = str(picked_job.get("title") or "")
+                    st.session_state["letter_company"] = str(picked_job.get("company") or "")
+                    st.session_state["letter_description"] = str(picked_job.get("description") or "")
+                    st.toast(f"'{picked_job.get('company')}' bilgileri Ön Yazı sekmesine aktarıldı!", icon="✍️")
+                    st.success("İlan bilgileri Ön Yazı sekmesine aktarıldı. Şimdi 'Ön Yazı' sekmesine geçebilirsiniz.")
 
     with st.expander("💾 Bu aramayı şablon olarak kaydet"):
         template_name = st.text_input("Şablon adı", key="save_search_name")
@@ -685,7 +792,14 @@ with tab_search:
 with tab_tracker:
     st.subheader("Başvuru Takibi")
     if not DB_PATH.exists():
-        st.info("Henüz taranmış ilan yok. Önce 'İş Ara' sekmesinden arama yap.")
+        st.markdown(
+            render_empty_state_html(
+                "Henüz Taranmış İlan Yok",
+                "Henüz kayıtlı başvuru veya ilan bulunmuyor. 'İş Ara' sekmesinden arama yaparak başlayabilirsiniz.",
+                icon="📋",
+            ),
+            unsafe_allow_html=True,
+        )
     else:
         stats = get_stats(DB_PATH)
         cols = st.columns(len(STATUSES) + 1)
@@ -694,13 +808,20 @@ with tab_tracker:
             cols[i].metric(s.capitalize(), stats["by_status"].get(s, 0))
 
         with st.expander("📈 Başvuru Analitiği & Dönüşüm Hunisi (Funnel)", expanded=False):
-            from app.analytics import get_funnel_metrics, get_platform_distribution, get_score_distribution
+            from app.analytics import (
+                get_funnel_metrics,
+                get_platform_distribution,
+                get_score_distribution,
+                get_status_distribution,
+            )
 
             fm = get_funnel_metrics(DB_PATH)
             an_col1, an_col2, an_col3 = st.columns(3)
             an_col1.metric("Başvuru Oranı (Yeni ➔ Başvuruldu)", f"%{fm['applied_rate']}", help="Taranan ilanlardan kaçına başvurulduğu")
             an_col2.metric("Mülakat Dönüş Oranı", f"%{fm['interview_rate']}", help="Başvurulardan mülakata dönüş oranı")
             an_col3.metric("Teklif Oranı", f"%{fm['offer_rate']}", help="Mülakatlardan teklife dönüş oranı")
+
+            st.markdown(render_donut_chart_html(get_status_distribution(DB_PATH), "Başvuru Durumu Dağılım Grafiği"), unsafe_allow_html=True)
 
             st.markdown("##### 🔻 Başvuru Süreç Hunisi")
             f1, f2, f3 = st.columns([1, 1, 1])
@@ -905,7 +1026,14 @@ with tab_tracker:
                                     if c_data.job_url:
                                         st.link_button("İlana Git ↗️", c_data.job_url)
         if not rows:
-            st.info("Kayıt bulunamadı.")
+            st.markdown(
+                render_empty_state_html(
+                    "Filtreye Uygun İlan Yok",
+                    "Seçilen duruma veya filtreye uygun başvuru kaydı bulunamadı.",
+                    icon="🎯",
+                ),
+                unsafe_allow_html=True,
+            )
         else:
             df = pd.DataFrame([dict(r) for r in rows])
             df["⭐"] = df["favorite"].apply(lambda v: "⭐" if v else "")
@@ -925,7 +1053,6 @@ with tab_tracker:
                 mime="text/csv",
             )
 
-
             st.markdown("**Durum güncelle & Detay Gör**")
             options = {f"{r['title']} — {r['company']} ({r['job_url']})": r["job_url"] for r in rows}
             selected_label = st.selectbox("İlan seç", options=list(options.keys()))
@@ -934,17 +1061,23 @@ with tab_tracker:
             selected_job_data = get_job(DB_PATH, selected_url)
             if selected_job_data:
                 is_fav = bool(selected_job_data["favorite"])
-                c_act1, c_act2, c_act3 = st.columns([1, 1, 2])
-                if c_act1.button("💔 Favorilerden Çıkar" if is_fav else "⭐ Favorilere Ekle", key=f"fav_{selected_url}"):
+                c_act1, c_act2, c_act3, c_act4 = st.columns([1, 1, 1, 1])
+                if c_act1.button("💔 Favoriden Çıkar" if is_fav else "⭐ Favoriye Ekle", key=f"fav_{selected_url}"):
                     toggle_favorite(DB_PATH, selected_url, not is_fav)
+                    st.toast("Favori durumu güncellendi.", icon="⭐")
                     st.rerun()
 
                 c_act2.link_button("🌐 İlan Sayfası ↗️", selected_url)
                 if selected_job_data["status"] == "yeni":
-                    if c_act3.button("🚀 Başvuruldu Olarak İşaretle", type="primary", key=f"quick_app_btn_{selected_url}"):
+                    if c_act3.button("🚀 Başvuruldu", type="primary", key=f"quick_app_btn_{selected_url}"):
                         set_status(DB_PATH, selected_url, "başvuruldu")
-                        st.success("İlan durumu 'Başvuruldu' olarak güncellendi!")
+                        st.toast("İlan durumu 'Başvuruldu' olarak güncellendi!", icon="🚀")
                         st.rerun()
+                if c_act4.button("✍️ Ön Yazı Hazırla", key=f"prep_letter_btn_{selected_url}"):
+                    st.session_state["letter_title"] = selected_job_data["title"] or ""
+                    st.session_state["letter_company"] = selected_job_data["company"] or ""
+                    st.session_state["letter_description"] = selected_job_data["description"] or ""
+                    st.toast(f"'{selected_job_data['company']}' bilgileri Ön Yazı sekmesine aktarıldı!", icon="✍️")
 
                 prof_for_match = try_load_profile()
                 if prof_for_match:
@@ -1167,7 +1300,14 @@ with tab_letter:
     st.subheader("Ön Yazı Taslağı")
     profile = try_load_profile()
     if profile is None:
-        st.warning("Önce 'Profil' sekmesinden geçerli bir profil kaydet.")
+        st.markdown(
+            render_empty_state_html(
+                "Profil Kaydı Bulunamadı",
+                "Ön yazı taslağı oluşturabilmek için önce 'Profil' sekmesinden bilgilerinizi kaydedin.",
+                icon="✍️",
+            ),
+            unsafe_allow_html=True,
+        )
     else:
         st.session_state.setdefault("letter_title", "Backend Developer")
         st.session_state.setdefault("letter_company", "")
