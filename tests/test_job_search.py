@@ -39,6 +39,8 @@ from app.job_search import (
     set_status,
     toggle_favorite,
     update_interview_answer,
+    list_job_activities,
+    update_job_tags,
 )
 from app.models import ContactInfo, Experience, Profile, SkillGroup
 
@@ -331,6 +333,39 @@ class TestJobSearch(unittest.TestCase):
         upcoming = list_upcoming_interviews(self.db_path, within_days=3)
         self.assertEqual(len(upcoming), 1)
         self.assertEqual(upcoming[0]["job_url"], "https://example.com/job1")
+
+    def test_job_activities_and_tags(self):
+        df = create_df(
+            [
+                {
+                    "job_url": "https://example.com/job_act",
+                    "site": "linkedin",
+                    "title": "Backend Dev",
+                    "company": "TechCo",
+                }
+            ]
+        )
+        save_jobs(df, self.db_path)
+
+        # Update status and verify activity log
+        set_status(self.db_path, "https://example.com/job_act", "başvuruldu", "İK mesaj attı")
+        activities = list_job_activities(self.db_path, "https://example.com/job_act")
+        self.assertGreaterEqual(len(activities), 1)
+        self.assertEqual(activities[0]["new_status"], "başvuruldu")
+        self.assertEqual(activities[0]["note"], "İK mesaj attı")
+
+        # Update tags and verify filtering
+        update_job_tags(self.db_path, "https://example.com/job_act", ["remote", "acil"])
+        job = get_job(self.db_path, "https://example.com/job_act")
+        self.assertIn("remote", job["tags"])
+        self.assertIn("acil", job["tags"])
+
+        tagged_jobs = list_jobs(self.db_path, tag="remote")
+        self.assertEqual(len(tagged_jobs), 1)
+        self.assertEqual(tagged_jobs[0]["job_url"], "https://example.com/job_act")
+
+        non_tagged = list_jobs(self.db_path, tag="nonexistent_tag")
+        self.assertEqual(len(non_tagged), 0)
 
 
 if __name__ == "__main__":
