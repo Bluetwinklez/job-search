@@ -416,13 +416,26 @@ with tab_cv:
             pdf_bytes = bytes(pdf.output())
             st.session_state["cv_pdf_bytes"] = pdf_bytes
             st.success(f"CV oluşturuldu ({THEMES[selected_theme]['name']}).")
+        col_dl1, col_dl2 = st.columns(2)
         if "cv_pdf_bytes" in st.session_state:
-            st.download_button(
-                "CV'yi indir (PDF)",
+            col_dl1.download_button(
+                "📄 CV'yi İndir (PDF)",
                 data=st.session_state["cv_pdf_bytes"],
                 file_name=f"{profile.contact.full_name.replace(' ', '_')}_CV.pdf",
                 mime="application/pdf",
+                use_container_width=True,
             )
+
+        from app.docx_generator import get_docx_bytes
+
+        docx_bytes = get_docx_bytes(profile)
+        col_dl2.download_button(
+            "📝 CV'yi İndir (Word / DOCX)",
+            data=docx_bytes,
+            file_name=f"{profile.contact.full_name.replace(' ', '_')}_CV.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            use_container_width=True,
+        )
 
         with st.expander("🎯 ATS Uyumluluk Skoru & Denetim Raporu", expanded=True):
             from app.ats_scorer import score_profile
