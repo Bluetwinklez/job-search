@@ -419,12 +419,47 @@ with tab_profile:
                 except Exception as err:
                     st.error(f"Kaydetme başarısız: {err}")
 
-        c_rst1, _ = st.columns([1, 2])
+        c_rst1, c_cat, c_sug = st.columns([1, 1, 1])
         if c_rst1.button("🔄 Değişiklikleri Sıfırla (Geri Al)", key="reset_profile_form_btn"):
             st.session_state.pop(form_state_key, None)
             st.session_state.pop("_last_form_loaded_for", None)
             st.toast("Form son kaydedilen profile geri döndürüldü.", icon="🔄")
             st.rerun()
+
+        from app.skill_categorizer import categorize_skills, extract_skills_from_profile
+
+        if c_cat.button("🪄 Yetenekleri Otomatik Grupla", key="auto_group_skills_btn"):
+            all_raw = []
+            for sg in fd["skills"]:
+                items = [x.strip() for x in sg["items"].split(",") if x.strip()]
+                all_raw.extend(items)
+            grouped = categorize_skills(all_raw)
+            fd["skills"] = [{"category": g.category, "items": ", ".join(g.items)} for g in grouped]
+            st.toast("Yetenekler kategorilere ayrıldı!", icon="🪄")
+            st.rerun()
+
+        if c_sug.button("💡 Deneyimlerden Eksikleri Bul", key="extract_skills_from_exp_btn"):
+            suggs = extract_skills_from_profile(active_prof)
+            if suggs:
+                st.session_state["_skill_suggs"] = suggs
+                st.toast(f"{len(suggs)} yeni yetenek bulundu!", icon="💡")
+            else:
+                st.toast("Deneyimlerinizdeki tüm yetenekler zaten eklenmiş.", icon="✅")
+
+        if "_skill_suggs" in st.session_state and st.session_state["_skill_suggs"]:
+            with st.expander(f"💡 Deneyimlerinizden Çıkarılan Yeni Yetenekler ({len(st.session_state['_skill_suggs'])})", expanded=True):
+                st.caption("Aşağıdaki yetenekler iş deneyimlerinizin teknolojilerinde bulundu ancak henüz 'Yetenekler' bölümünde yok:")
+                st.write(", ".join(st.session_state["_skill_suggs"]))
+                if st.button("Hepsini Yeteneklere Ekle & Grupla"):
+                    all_raw = []
+                    for sg in fd["skills"]:
+                        items = [x.strip() for x in sg["items"].split(",") if x.strip()]
+                        all_raw.extend(items)
+                    all_raw.extend(st.session_state.pop("_skill_suggs"))
+                    grouped = categorize_skills(all_raw)
+                    fd["skills"] = [{"category": g.category, "items": ", ".join(g.items)} for g in grouped]
+                    st.toast("Yetenekler eklendi ve gruplandı!", icon="🎉")
+                    st.rerun()
 
     else:
         if st.session_state.get("_editor_loaded_for") != st.session_state["active_profile"]:
@@ -517,7 +552,7 @@ with tab_cv:
             st.session_state["cv_pdf_bytes"] = pdf_bytes
             st.toast(f"CV oluşturuldu ({THEMES[selected_theme]['name']}).", icon="📄")
             st.success(f"CV oluşturuldu ({THEMES[selected_theme]['name']}).")
-        col_dl1, col_dl2 = st.columns(2)
+        col_dl1, col_dl2, col_dl3 = st.columns(3)
         if "cv_pdf_bytes" in st.session_state:
             col_dl1.download_button(
                 "📄 CV'yi İndir (PDF)",
@@ -531,10 +566,21 @@ with tab_cv:
 
         docx_bytes = get_docx_bytes(profile)
         col_dl2.download_button(
-            "📝 CV'yi İndir (Word / DOCX)",
+            "📝 CV'yi İndir (Word)",
             data=docx_bytes,
             file_name=f"{profile.contact.full_name.replace(' ', '_')}_CV.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            use_container_width=True,
+        )
+
+        from app.markdown_generator import generate_markdown_cv
+
+        md_text = generate_markdown_cv(profile)
+        col_dl3.download_button(
+            "💻 CV'yi İndir (Markdown)",
+            data=md_text.encode("utf-8"),
+            file_name=f"{profile.contact.full_name.replace(' ', '_')}_CV.md",
+            mime="text/markdown",
             use_container_width=True,
         )
 
