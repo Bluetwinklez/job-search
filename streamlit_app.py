@@ -80,20 +80,34 @@ with st.sidebar:
 
     st.divider()
     st.header("⚙️ Yapay Zeka Ayarları")
-    st.caption("Claude API özelliklerini (CV yeniden yazma & uyarlama) kullanmak için anahtarınızı girebilirsiniz:")
+    st.caption("CV uyarlama, yeniden yazma ve analiz için yapay zeka sağlayıcınızı seçin:")
+
+    from app.llm_client import PROVIDERS
+
+    provider_choice = st.selectbox(
+        "Yapay Zeka Sağlayıcısı",
+        options=list(PROVIDERS.keys()),
+        format_func=lambda k: PROVIDERS[k]["name"],
+        key="ai_provider_select",
+    )
+
+    prov_info = PROVIDERS[provider_choice]
+    env_var_name = prov_info["env_var"]
     api_key_input = st.text_input(
-        "Anthropic API Anahtarı",
+        f"{prov_info['name']} API Anahtarı",
         type="password",
-        value=os.environ.get("ANTHROPIC_API_KEY", ""),
-        help="sk-ant-... ile başlayan anahtarınız.",
+        value=os.environ.get(env_var_name, ""),
+        help=f"{env_var_name} ortam değişkeninden veya buradan girilebilir.",
+        key=f"api_key_input_{provider_choice}",
     )
     model_choice = st.selectbox(
-        "Claude Modeli",
-        options=["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
+        "Model",
+        options=prov_info["models"],
         index=0,
+        key=f"model_choice_{provider_choice}",
     )
     if api_key_input:
-        os.environ["ANTHROPIC_API_KEY"] = api_key_input
+        os.environ[env_var_name] = api_key_input
 
     st.divider()
     st.header("💾 Veri Yedekleme")
