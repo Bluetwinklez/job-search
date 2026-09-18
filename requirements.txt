@@ -1,0 +1,8 @@
+fpdf2>=2.7
+pydantic>=2.5
+email-validator>=2.1
+python-jobspy>=1.1
+pandas>=2.0
+streamlit>=1.60
+anthropic>=1.6
+pypdf>=6.0
