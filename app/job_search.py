@@ -27,7 +27,7 @@ from pathlib import Path
 import pandas as pd
 from jobspy import scrape_jobs
 
-from app.matching import contains_keyword, split_keywords
+from app.matching import contains_keyword, extract_matching_keywords, split_keywords, turkish_lower
 from app.models import Profile
 
 ALL_SITES = [
@@ -75,11 +75,7 @@ def _profile_keywords(profile: Profile) -> set[str]:
     """Profildeki yetenek/teknoloji ifadelerinden eşleşme anahtar kelimelerini çıkarır.
 
     Hem ifadenin tamamını (ör. "reçete karşılama") hem de anlamlı tekil
-    kelimelerini (ör. "reçete", "karşılama") ekler — böylece tek kelimelik
-    teknoloji adları (ör. "Python") için önceki davranış korunurken, çok
-    kelimeli Türkçe ifadeler (ör. eczane/idari işler gibi teknik olmayan
-    alanlar) ilan metninde birebir aynı sırayla geçmese bile kısmi eşleşme
-    kredisi alabiliyor.
+    kelimelerini (ör. "reçete", "karşılama") ekler (Türkçe karakter uyumlu).
     """
     items: list[str] = []
     for group in profile.skills:
@@ -92,16 +88,30 @@ def _profile_keywords(profile: Profile) -> set[str]:
         item = item.strip()
         if not item:
             continue
-        keywords.add(item.lower())
+        keywords.add(turkish_lower(item))
         keywords.update(split_keywords(item))
     return keywords
 
 
-def _match_score(description: str | None, keywords: set[str]) -> float | None:
-    if not isinstance(description, str) or not description or not keywords:
+def _match_score(text: str | None, keywords: set[str]) -> float | None:
+    if not isinstance(text, str) or not text.strip() or not keywords:
         return None
-    hits = sum(1 for kw in keywords if contains_keyword(description, kw))
-    return round(hits / len(keywords), 3)
+    hits = sum(1 for kw in keywords if contains_keyword(text, kw))
+    if hits == 0:
+        return 0.0
+    # Tipik bir ilan 4-10 arası yetenek arar; çok geniş profile sahip adayların
+    # skoru gereksiz yere cezalandırılmasın diye min(len(keywords), 10) ile normalize edilir.
+    effective_total = min(len(keywords), 10)
+    return round(min(1.0, hits / effective_total), 3)
+
+
+def get_matched_skills(text: str | None, profile: Profile | None) -> list[str]:
+    """İlan metni ile eşleşen profil yeteneklerini döner."""
+    if not text or not profile:
+        return []
+    keywords = _profile_keywords(profile)
+    return extract_matching_keywords(text, keywords)
+
 
 
 def search_jobs(
@@ -175,33 +185,55 @@ def save_jobs(df, db_path: Path, profile: Profile | None = None) -> int:
         job_url = row.get("job_url")
         if not job_url:
             continue
+        title = _clean(row.get("title"))
+        company = _clean(row.get("company"))
+        location = _clean(row.get("location")) or ""
+        job_type = _clean(row.get("job_type")) or ""
+        date_posted = _clean(row.get("date_posted")) or ""
         description = _clean(row.get("description"))
-        score = _match_score(description, keywords) if keywords else None
-        cur = conn.execute(
+
+        search_text = f"{title or ''}\n{description or ''}".strip()
+        score = _match_score(search_text, keywords) if keywords else None
+
+        # Gerçekten yeni mi kontrol et (SQLite rowcount yanılgısını önlemek için)
+        exists = conn.execute("SELECT 1 FROM jobs WHERE job_url = ?", (job_url,)).fetchone()
+        if not exists:
+            new_count += 1
+
+        conn.execute(
             """
             INSERT INTO jobs (job_url, site, title, company, location, job_type,
                                date_posted, description, match_score, fetched_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(job_url) DO UPDATE SET match_score = excluded.match_score
+            ON CONFLICT(job_url) DO UPDATE SET
+                match_score = COALESCE(excluded.match_score, jobs.match_score),
+                description = CASE WHEN excluded.description IS NOT NULL AND excluded.description != ''
+                                   THEN excluded.description ELSE jobs.description END,
+                location = CASE WHEN excluded.location IS NOT NULL AND excluded.location != ''
+                                THEN excluded.location ELSE jobs.location END,
+                date_posted = CASE WHEN excluded.date_posted IS NOT NULL AND excluded.date_posted != ''
+                                   THEN excluded.date_posted ELSE jobs.date_posted END,
+                job_type = CASE WHEN excluded.job_type IS NOT NULL AND excluded.job_type != ''
+                                THEN excluded.job_type ELSE jobs.job_type END,
+                fetched_at = excluded.fetched_at
             """,
             (
                 job_url,
                 _clean(row.get("site")) or "",
-                _clean(row.get("title")),
-                _clean(row.get("company")),
-                _clean(row.get("location")) or "",
-                _clean(row.get("job_type")) or "",
-                _clean(row.get("date_posted")) or "",
+                title,
+                company,
+                location,
+                job_type,
+                date_posted,
                 description,
                 score,
                 fetched_at,
             ),
         )
-        if cur.rowcount:
-            new_count += 1
     conn.commit()
     conn.close()
     return new_count
+
 
 
 def list_jobs(

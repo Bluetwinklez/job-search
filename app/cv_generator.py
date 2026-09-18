@@ -161,12 +161,38 @@ def build_cv(profile: Profile) -> FPDF:
             pdf.ln(6.5)
             pdf.set_text_color(*TEXT_COLOR)
 
+    if profile.projects:
+        pdf.section_title("Projeler")
+        for proj in profile.projects:
+            pdf.set_font(FONT_FAMILY, "B", 10)
+            pdf.set_text_color(*TEXT_COLOR)
+            pdf.multi_cell(0, 5.5, proj.name, new_x="LMARGIN", new_y="NEXT")
+            if proj.description:
+                pdf.set_font(FONT_FAMILY, "", 9)
+                pdf.set_text_color(*TEXT_COLOR)
+                pdf.multi_cell(0, 5, proj.description, new_x="LMARGIN", new_y="NEXT")
+            if proj.technologies:
+                pdf.set_font(FONT_FAMILY, "", 8.5)
+                pdf.set_text_color(*MUTED_COLOR)
+                pdf.multi_cell(0, 4.5, "Teknolojiler: " + ", ".join(proj.technologies), new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(1)
+
+    if profile.certifications:
+        pdf.section_title("Sertifikalar")
+        for cert in profile.certifications:
+            pdf.set_font(FONT_FAMILY, "", 9.5)
+            pdf.set_text_color(*TEXT_COLOR)
+            pdf.set_x(pdf.l_margin)
+            pdf.cell(4, 5, "-", new_x="RIGHT", new_y="TOP")
+            pdf.multi_cell(0, 5, cert, new_x="LMARGIN", new_y="NEXT")
+
     if profile.languages:
         pdf.section_title("Diller")
         pdf.set_font(FONT_FAMILY, "", 9.5)
         pdf.multi_cell(0, 5.5, ", ".join(profile.languages), new_x="LMARGIN", new_y="NEXT")
 
     return pdf
+
 
 
 def generate_cv(profile_path: Path, output_path: Path) -> None:

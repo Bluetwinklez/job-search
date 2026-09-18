@@ -7,7 +7,15 @@ eşleştirmesi bu profil üzerinden çalışır.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
+
+try:
+    from pydantic import EmailStr
+
+    class _EmailProbe(BaseModel):
+        email: EmailStr
+except Exception:
+    EmailStr = str  # type: ignore[assignment,misc]
 
 
 class ContactInfo(BaseModel):
@@ -44,6 +52,13 @@ class SkillGroup(BaseModel):
     items: list[str]
 
 
+class Project(BaseModel):
+    name: str
+    description: str | None = None
+    url: str | None = None
+    technologies: list[str] = Field(default_factory=list)
+
+
 class Profile(BaseModel):
     contact: ContactInfo
     summary: str | None = None
@@ -51,3 +66,6 @@ class Profile(BaseModel):
     education: list[Education] = Field(default_factory=list)
     skills: list[SkillGroup] = Field(default_factory=list)
     languages: list[str] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
+    projects: list[Project] = Field(default_factory=list)
+
