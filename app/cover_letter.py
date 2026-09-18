@@ -16,7 +16,12 @@ import json
 from pathlib import Path
 
 from app.matching import contains_keyword
-from app.models import Profile
+from app.models import Experience, Profile
+
+_STOPWORDS = {
+    "ve", "ile", "bir", "bu", "de", "da", "için", "olan", "gibi", "çok",
+    "the", "and", "for", "with", "our", "you", "are", "your",
+}
 
 
 def _matching_skills(profile: Profile, job_description: str | None, top_n: int = 5) -> list[str]:
@@ -28,6 +33,31 @@ def _matching_skills(profile: Profile, job_description: str | None, top_n: int =
     return ordered[:top_n]
 
 
+def _job_keywords(job_title: str, job_description: str | None) -> set[str]:
+    text = f"{job_title} {job_description or ''}".lower()
+    words = {w.strip(".,;:()/\\-") for w in text.split()}
+    return {w for w in words if len(w) >= 4 and w not in _STOPWORDS}
+
+
+def _most_relevant_experience(profile: Profile, job_title: str, job_description: str | None) -> Experience | None:
+    if not profile.experience:
+        return None
+    job_words = _job_keywords(job_title, job_description)
+    if not job_words:
+        return profile.experience[0]
+
+    best_exp = profile.experience[0]
+    best_score = -1
+    for exp in profile.experience:
+        exp_text = f"{exp.company} {exp.role} {' '.join(exp.highlights)} {' '.join(exp.tech_stack)}".lower()
+        exp_words = {w.strip(".,;:()/\\-") for w in exp_text.split()}
+        score = sum(1 for w in exp_words if w in job_words)
+        if score > best_score:
+            best_score = score
+            best_exp = exp
+    return best_exp if best_score > 0 else profile.experience[0]
+
+
 def generate_cover_letter(
     profile: Profile,
     job_title: str,
@@ -37,7 +67,7 @@ def generate_cover_letter(
     skills = _matching_skills(profile, job_description)
     skills_line = ", ".join(skills) if skills else ""
 
-    latest_role = profile.experience[0] if profile.experience else None
+    latest_role = _most_relevant_experience(profile, job_title, job_description)
     experience_line = ""
     if latest_role:
         is_current = latest_role.end_date is None
