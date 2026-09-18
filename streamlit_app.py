@@ -30,11 +30,13 @@ from app.job_search import (
     STATUSES,
     add_to_blacklist,
     add_watched_company,
+    delete_interview_question,
     delete_saved_search,
     get_blacklist,
     get_job,
     get_matched_skills,
     get_stats,
+    list_interview_questions,
     list_jobs,
     list_saved_searches,
     list_search_history,
@@ -42,11 +44,13 @@ from app.job_search import (
     log_search,
     remove_from_blacklist,
     remove_watched_company,
+    save_interview_questions,
     save_jobs,
     save_search,
     search_jobs,
     set_status,
     toggle_favorite,
+    update_interview_answer,
 )
 from app.models import Profile
 
@@ -913,6 +917,14 @@ with tab_tracker:
                                     st.caption(f"🎯 **Neden Sorulur?** {q.rationale}")
                                     st.info(f"💡 **Cevap İpucu:** {q.answer_tip}")
 
+                            if st.button("💾 Soru Bankasına Kaydet", key=f"save_prep_{selected_url}"):
+                                save_interview_questions(
+                                    DB_PATH,
+                                    selected_url,
+                                    [q.model_dump() for q in cached_prep.questions],
+                                )
+                                st.success("Sorular soru bankasına kaydedildi. 'Başvurularım' sekmesinden görüntüleyebilirsin.")
+
                     with st.expander("✉️ İletişim Şablonları (LinkedIn, Soğuk E-posta, Takip)"):
                         from app.outreach import (
                             generate_cold_email,
@@ -1034,6 +1046,48 @@ with tab_tracker:
                 set_status(DB_PATH, job_url, new_status, notes or None)
                 st.success("Güncellendi.")
                 st.rerun()
+
+        st.divider()
+        with st.expander("📚 Kişisel Mülakat Soru Bankası"):
+            st.caption(
+                "'İş Ara' sekmesindeki mülakat hazırlığından kaydettiğin tüm sorular "
+                "burada birikir. Her soruya kendi cevabını yazıp saklayabilirsin."
+            )
+            qb_all_jobs = list_jobs(DB_PATH, limit=200) if DB_PATH.exists() else []
+            qb_options = {f"{r['title']} — {r['company']}": r["job_url"] for r in qb_all_jobs}
+            qb_job_filter = st.selectbox(
+                "İlana göre filtrele",
+                options=["(tümü)"] + list(qb_options.keys()),
+                key="qb_job_filter",
+            )
+            filter_job_url = None if qb_job_filter == "(tümü)" else qb_options.get(qb_job_filter)
+            bank_questions = list_interview_questions(DB_PATH, job_url=filter_job_url) if DB_PATH.exists() else []
+            if not bank_questions:
+                st.info("Soru bankası boş. 'İş Ara' sekmesinden bir ilan için mülakat rehberi üretip kaydedebilirsin.")
+            else:
+                for bq in bank_questions:
+                    bq_job = get_job(DB_PATH, bq["job_url"]) if bq["job_url"] else None
+                    job_label = f"{bq_job['title']} — {bq_job['company']}" if bq_job else "Genel"
+                    with st.container(border=True):
+                        st.caption(f"📌 {job_label}  ·  [{bq['category'] or ''}]")
+                        st.markdown(f"**{bq['question']}**")
+                        if bq["rationale"]:
+                            st.caption(f"🎯 {bq['rationale']}")
+                        if bq["answer_tip"]:
+                            st.caption(f"💡 {bq['answer_tip']}")
+                        personal_answer = st.text_area(
+                            "Kendi cevabım",
+                            value=bq["personal_answer"] or "",
+                            key=f"qb_answer_{bq['id']}",
+                            height=80,
+                        )
+                        qb_col1, qb_col2 = st.columns([1, 1])
+                        if qb_col1.button("Cevabı Kaydet", key=f"qb_save_{bq['id']}"):
+                            update_interview_answer(DB_PATH, bq["id"], personal_answer)
+                            st.success("Cevap kaydedildi.")
+                        if qb_col2.button("Sil", key=f"qb_delete_{bq['id']}"):
+                            delete_interview_question(DB_PATH, bq["id"])
+                            st.rerun()
 
 
 # ------------------------------------------------------------------ Ön Yazı -

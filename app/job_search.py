@@ -90,6 +90,17 @@ CREATE TABLE IF NOT EXISTS blacklist (
     kind TEXT NOT NULL DEFAULT 'company',
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS interview_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_url TEXT,
+    category TEXT,
+    question TEXT NOT NULL,
+    rationale TEXT,
+    answer_tip TEXT,
+    personal_answer TEXT,
+    created_at TEXT NOT NULL
+);
 """
 
 _JOBS_EXTRA_COLUMNS = {
@@ -550,6 +561,65 @@ def list_watched_companies(db_path: Path):
     rows = conn.execute("SELECT * FROM company_watchlist ORDER BY added_at DESC").fetchall()
     conn.close()
     return rows
+
+
+# ------------------------------------------------------- Mülakat soru bankası -
+def save_interview_questions(db_path: Path, job_url: str | None, questions: list[dict]) -> None:
+    """Üretilen mülakat sorularını (kategori/soru/gerekçe/cevap ipucu) soru bankasına kaydeder."""
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    now = datetime.now(timezone.utc).isoformat()
+    conn.executemany(
+        """
+        INSERT INTO interview_questions (job_url, category, question, rationale, answer_tip, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (job_url, q.get("category"), q.get("question"), q.get("rationale"), q.get("answer_tip"), now)
+            for q in questions
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+
+def list_interview_questions(db_path: Path, job_url: str | None = None):
+    """job_url verilirse yalnızca o ilana ait soruları, verilmezse tüm soru bankasını döner."""
+    if not db_path.exists():
+        return []
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    _ensure_schema(conn)
+    if job_url:
+        rows = conn.execute(
+            "SELECT * FROM interview_questions WHERE job_url = ? ORDER BY created_at DESC", (job_url,)
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM interview_questions ORDER BY created_at DESC").fetchall()
+    conn.close()
+    return rows
+
+
+def update_interview_answer(db_path: Path, question_id: int, personal_answer: str) -> bool:
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    cur = conn.execute(
+        "UPDATE interview_questions SET personal_answer = ? WHERE id = ?", (personal_answer, question_id)
+    )
+    conn.commit()
+    updated = cur.rowcount > 0
+    conn.close()
+    return updated
+
+
+def delete_interview_question(db_path: Path, question_id: int) -> bool:
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    cur = conn.execute("DELETE FROM interview_questions WHERE id = ?", (question_id,))
+    conn.commit()
+    deleted = cur.rowcount > 0
+    conn.close()
+    return deleted
 
 
 def get_stats(db_path: Path) -> dict:
