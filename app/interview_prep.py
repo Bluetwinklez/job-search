@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from app.matching import extract_matching_keywords
 from app.models import Profile
 
-DEFAULT_MODEL = "claude-3-7-sonnet-20250219"
+DEFAULT_MODEL = "claude-opus-5"
 
 
 class InterviewQuestion(BaseModel):
