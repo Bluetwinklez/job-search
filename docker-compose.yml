@@ -1,0 +1,14 @@
+services:
+  is-arama-asistani:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+    environment:
+      # Claude API özellikleri (ilana özel uyarlama, yeniden yazma, İngilizce
+      # CV, mülakat hazırlığı) için kendi anahtarını gir; boş bırakırsan bu
+      # özellikler web arayüzündeki "Yapay Zeka Ayarları" bölümünden de
+      # girilebilir.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    restart: unless-stopped
