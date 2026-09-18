@@ -72,6 +72,31 @@ class TestOutreach(unittest.TestCase):
         self.assertIn("Can Bey", body)
         self.assertIn("Startup A.Ş.", body)
 
+    def test_check_follow_up_needed(self):
+        import tempfile
+        import sqlite3
+        from pathlib import Path
+        from app.outreach import check_follow_up_needed
+
+        with tempfile.TemporaryDirectory() as td:
+            db = Path(td) / "test.db"
+            conn = sqlite3.connect(db)
+            conn.execute("CREATE TABLE jobs (job_url TEXT, title TEXT, company TEXT, site TEXT, fetched_at TEXT, status TEXT)")
+            # 10 gün önce
+            conn.execute("INSERT INTO jobs VALUES ('url1', 'Dev', 'Company A', 'linkedin', '2026-09-01T00:00:00+00:00', 'başvuruldu')")
+            # 1 gün önce (henüz takip zamanı değil)
+            conn.execute("INSERT INTO jobs VALUES ('url2', 'Dev', 'Company B', 'indeed', '2026-09-17T00:00:00+00:00', 'başvuruldu')")
+            # 10 gün önce ama mülakat aşamasında
+            conn.execute("INSERT INTO jobs VALUES ('url3', 'Dev', 'Company C', 'glassdoor', '2026-09-01T00:00:00+00:00', 'mülakat')")
+            conn.commit()
+            conn.close()
+
+            needed = check_follow_up_needed(db, days_threshold=7)
+            self.assertEqual(len(needed), 1)
+            self.assertEqual(needed[0]["job_url"], "url1")
+            self.assertEqual(needed[0]["company"], "Company A")
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -64,6 +64,19 @@ class TestCoverLetter(unittest.TestCase):
         self.assertIn("Mehmet Öz", letter)
         self.assertIn("mehmet@example.com", letter)
 
+    def test_render_letter_pdf_with_letterhead(self):
+        from app.cover_letter import render_letter_pdf
+
+        letter = "Sayın Yetkili,\n\nİlanınızla ilgileniyorum.\n\nSaygılarımla,\nMehmet Öz"
+        # Profilsiz (eski uyumluluk)
+        pdf1 = render_letter_pdf(letter)
+        self.assertGreater(len(bytes(pdf1.output())), 1000)
+
+        # Kurumsal antetli ve temalı
+        pdf2 = render_letter_pdf(letter, profile=self.profile, theme="emerald_green")
+        self.assertGreater(len(bytes(pdf2.output())), 1000)
+
 
 if __name__ == "__main__":
     unittest.main()
+

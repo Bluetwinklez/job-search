@@ -112,3 +112,40 @@ Saygılarımla,
 {profile.contact.email}
 """
     return subject, body.strip()
+
+
+def check_follow_up_needed(db_path: Path, days_threshold: int = 7) -> list[dict]:
+    """Başvurulalı `days_threshold` gün geçmiş ama henüz yanıt alınmamış ('başvuruldu' durumundaki) ilanları listeler."""
+    if not db_path.exists():
+        return []
+    import sqlite3
+    from datetime import datetime, timezone
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT job_url, title, company, site, fetched_at, status FROM jobs WHERE status = 'başvuruldu'").fetchall()
+    conn.close()
+
+    now = datetime.now(timezone.utc)
+    results = []
+    for r in rows:
+        fetched_str = r["fetched_at"]
+        if not fetched_str:
+            continue
+        try:
+            dt = datetime.fromisoformat(fetched_str)
+            days = (now - dt).days
+            if days >= days_threshold:
+                results.append({
+                    "job_url": r["job_url"],
+                    "title": r["title"],
+                    "company": r["company"],
+                    "site": r["site"],
+                    "days_elapsed": days,
+                    "applied_at": fetched_str[:10],
+                })
+        except Exception:
+            continue
+
+    return results
+
