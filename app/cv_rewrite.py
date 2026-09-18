@@ -62,17 +62,32 @@ HAM CV METNİ:
 """
 
 
-def rewrite_cv(raw_cv_text: str, model: str = DEFAULT_MODEL) -> Profile:
+def rewrite_cv(raw_cv_text: str, model: str = DEFAULT_MODEL, api_key: str | None = None) -> Profile:
+    import os
+
+    key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        raise ValueError(
+            "ANTHROPIC_API_KEY ortam değişkeni tanımlı değil. Lütfen geçerli bir Anthropic API anahtarı sağlayın."
+        )
+
     import anthropic
 
-    client = anthropic.Anthropic()
-    response = client.messages.parse(
+    client = anthropic.Anthropic(api_key=key)
+    parse_fn = getattr(client.beta.messages, "parse", None) if hasattr(client, "beta") else None
+    if parse_fn is None:
+        parse_fn = getattr(client.messages, "parse", None)
+    if parse_fn is None:
+        raise RuntimeError("Yüklü anthropic kütüphanesi structured output (.parse) desteklemiyor. Lütfen güncelleyin.")
+
+    response = parse_fn(
         model=model,
         max_tokens=4096,
         messages=[{"role": "user", "content": REWRITE_INSTRUCTIONS.format(raw_cv=raw_cv_text)}],
         output_format=Profile,
     )
     return response.parsed_output
+
 
 
 def main() -> None:
