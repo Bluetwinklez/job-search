@@ -1,0 +1,11 @@
+.git
+.gitignore
+.pytest_cache
+__pycache__
+*.pyc
+data/profile.json
+data/profiles/
+data/profile_history/
+data/jobs.db
+*.pdf
+*.ics
