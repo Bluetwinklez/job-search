@@ -95,6 +95,35 @@ with st.sidebar:
     if api_key_input:
         os.environ["ANTHROPIC_API_KEY"] = api_key_input
 
+    st.divider()
+    st.header("💾 Veri Yedekleme")
+    with st.expander("📦 Yedek İndir / Yükle"):
+        from app.backup import create_backup_zip, restore_backup_zip
+
+        st.caption("Veritabanı, profil ve sürüm geçmişinizi tek tıkla ZIP olarak yedekleyin.")
+        backup_bytes = create_backup_zip(Path("data"))
+        st.download_button(
+            "📥 Tam Yedek İndir (.zip)",
+            data=backup_bytes,
+            file_name="is_arama_asistani_yedek.zip",
+            mime="application/zip",
+            key="dl_backup_zip_btn",
+        )
+
+        st.markdown("---")
+        st.caption("Var olan bir ZIP yedeğini sisteme yükle:")
+        uploaded_backup = st.file_uploader("Yedek (.zip)", type=["zip"], key="backup_upload_zip")
+        if st.button("Yedeği Geri Yükle", key="restore_backup_btn"):
+            if uploaded_backup is not None:
+                res = restore_backup_zip(uploaded_backup.read(), Path("data"))
+                if res["success"]:
+                    st.success(f"Yedek geri yüklendi! ({len(res['files_restored'])} dosya)")
+                    st.rerun()
+                else:
+                    st.error(f"Geri yükleme hatası: {res['error']}")
+            else:
+                st.warning("Lütfen bir .zip dosyası seçin.")
+
 PROFILE_PATH = profile_store.profile_path(st.session_state["active_profile"])
 
 
@@ -588,6 +617,43 @@ with tab_tracker:
         cols[0].metric("Toplam", stats["total"])
         for i, s in enumerate(STATUSES, start=1):
             cols[i].metric(s.capitalize(), stats["by_status"].get(s, 0))
+
+        with st.expander("📈 Başvuru Analitiği & Dönüşüm Hunisi (Funnel)", expanded=False):
+            from app.analytics import get_funnel_metrics, get_platform_distribution, get_score_distribution
+
+            fm = get_funnel_metrics(DB_PATH)
+            an_col1, an_col2, an_col3 = st.columns(3)
+            an_col1.metric("Başvuru Oranı (Yeni ➔ Başvuruldu)", f"%{fm['applied_rate']}", help="Taranan ilanlardan kaçına başvurulduğu")
+            an_col2.metric("Mülakat Dönüş Oranı", f"%{fm['interview_rate']}", help="Başvurulardan mülakata dönüş oranı")
+            an_col3.metric("Teklif Oranı", f"%{fm['offer_rate']}", help="Mülakatlardan teklife dönüş oranı")
+
+            st.markdown("##### 🔻 Başvuru Süreç Hunisi")
+            f1, f2, f3 = st.columns([1, 1, 1])
+            with f1:
+                st.write(f"📨 **Başvuruldu:** {fm['applied']} ilan")
+                st.progress(min(1.0, fm['applied_rate'] / 100.0) if fm['total'] > 0 else 0.0)
+            with f2:
+                st.write(f"💼 **Mülakat:** {fm['interview']} görüşme")
+                st.progress(min(1.0, fm['interview_rate'] / 100.0) if fm['applied'] > 0 else 0.0)
+            with f3:
+                st.write(f"🎉 **Teklif:** {fm['offer']} adet")
+                st.progress(min(1.0, fm['offer_rate'] / 100.0) if fm['interview'] > 0 else 0.0)
+
+            c_ch1, c_ch2 = st.columns(2)
+            with c_ch1:
+                st.markdown("##### 🌐 Platform Dağılımı")
+                p_dist = get_platform_distribution(DB_PATH)
+                if p_dist:
+                    st.bar_chart(p_dist)
+                else:
+                    st.caption("Veri yok.")
+            with c_ch2:
+                st.markdown("##### 🎯 Eşleşme Skoru Dağılımı")
+                s_dist = get_score_distribution(DB_PATH)
+                if s_dist:
+                    st.bar_chart(s_dist)
+                else:
+                    st.caption("Veri yok.")
 
         view_mode = st.radio("Görünüm Seçeneği", ["📊 Kanban Panosu", "📋 Tablo Listesi"], horizontal=True)
 
