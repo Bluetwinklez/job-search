@@ -3,7 +3,12 @@ import unittest
 from pathlib import Path
 import sqlite3
 
-from app.analytics import get_funnel_metrics, get_platform_distribution, get_score_distribution
+from app.analytics import (
+    get_funnel_metrics,
+    get_platform_distribution,
+    get_score_distribution,
+    get_status_distribution,
+)
 
 
 class TestAnalytics(unittest.TestCase):
@@ -67,6 +72,15 @@ class TestAnalytics(unittest.TestCase):
         self.assertEqual(dist["⚡ %60 - %79 (Orta)"], 1)  # 0.70
         self.assertEqual(dist["🔍 %40 - %59 (Düşük)"], 1)  # 0.45
         self.assertEqual(dist["⚪ %0 - %39 / Skorsuz"], 1)  # None
+
+
+    def test_status_distribution(self):
+        dist = get_status_distribution(self.db_path)
+        self.assertEqual(dist["yeni"], 2)
+        self.assertEqual(dist["başvuruldu"], 1)
+        self.assertEqual(dist["mülakat"], 1)
+        self.assertEqual(dist["teklif"], 1)
+        self.assertEqual(dist["reddedildi"], 1)
 
 
 if __name__ == "__main__":
