@@ -1,6 +1,13 @@
 import unittest
+from unittest.mock import patch
 
-from app.cover_letter import _latest_experience, _most_relevant_experience, generate_cover_letter
+from app.cover_letter import (
+    _latest_experience,
+    _most_relevant_experience,
+    generate_bulk_cover_letters,
+    generate_cover_letter,
+    generate_cover_letter_english,
+)
 from app.models import ContactInfo, Experience, Profile, SkillGroup
 
 
@@ -63,6 +70,40 @@ class TestCoverLetter(unittest.TestCase):
         self.assertIn("Senior Python Developer", letter)
         self.assertIn("Mehmet Öz", letter)
         self.assertIn("mehmet@example.com", letter)
+
+    @patch("app.llm_client.generate_llm_response")
+    def test_generate_cover_letter_english_uses_llm(self, mock_llm):
+        mock_llm.return_value = "Dear Hiring Manager, ..."
+        letter = generate_cover_letter_english(
+            self.profile,
+            job_title="Senior Python Developer",
+            company="Teknoloji A.Ş.",
+            job_description="Python ve Docker bilen adaylar",
+            provider="anthropic",
+            api_key="test-key",
+        )
+        self.assertEqual(letter, "Dear Hiring Manager, ...")
+        mock_llm.assert_called_once()
+        _, kwargs = mock_llm.call_args
+        self.assertEqual(kwargs["provider"], "anthropic")
+        self.assertIn("Do NOT invent", kwargs["system_prompt"])
+
+    def test_generate_bulk_cover_letters_turkish(self):
+        jobs = [
+            {"job_url": "https://example.com/1", "title": "Backend Developer", "company": "Acme"},
+            {"job_url": "https://example.com/2", "title": "Data Engineer", "company": "Globex"},
+        ]
+        letters = generate_bulk_cover_letters(self.profile, jobs, language="tr")
+        self.assertEqual(len(letters), 2)
+        self.assertIn("Acme", letters["https://example.com/1"])
+        self.assertIn("Globex", letters["https://example.com/2"])
+
+    @patch("app.llm_client.generate_llm_response")
+    def test_generate_bulk_cover_letters_english(self, mock_llm):
+        mock_llm.return_value = "Dear Hiring Manager, ..."
+        jobs = [{"job_url": "https://example.com/1", "title": "Backend Developer", "company": "Acme"}]
+        letters = generate_bulk_cover_letters(self.profile, jobs, language="en")
+        self.assertEqual(letters["https://example.com/1"], "Dear Hiring Manager, ...")
 
     def test_render_letter_pdf_with_letterhead(self):
         from app.cover_letter import render_letter_pdf

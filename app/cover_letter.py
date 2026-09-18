@@ -113,6 +113,69 @@ def generate_cover_letter(
     return "\n".join(p for p in paragraphs if p is not None)
 
 
+def generate_cover_letter_english(
+    profile: Profile,
+    job_title: str,
+    company: str,
+    job_description: str | None = None,
+    provider: str = "anthropic",
+    model: str | None = None,
+    api_key: str | None = None,
+) -> str:
+    """İngilizce ön yazı taslağı üretir (LLM ile).
+
+    Önce Türkçe şablon taslağı üretilir, ardından yapay zeka yalnızca bu metni
+    doğal İngilizceye çevirir/uyarlar — yeni bir deneyim veya başarı uydurmaz.
+    """
+    from app.llm_client import generate_llm_response
+
+    turkish_draft = generate_cover_letter(profile, job_title, company, job_description)
+
+    system_prompt = (
+        "You are a professional English cover-letter writer. You will be given a Turkish "
+        "cover letter draft. Rewrite it in natural, professional English, preserving every "
+        "fact exactly as given (company name, job title, technologies, achievements, contact "
+        "info). Do NOT invent, add, or embellish any experience, skill, or fact that is not "
+        "already present in the draft. Return only the final English letter text, no preamble."
+    )
+    prompt = f"Turkish cover letter draft:\n\n{turkish_draft}\n\nRewrite this in English."
+
+    return generate_llm_response(
+        prompt,
+        system_prompt=system_prompt,
+        provider=provider,
+        model=model,
+        api_key=api_key,
+    ).strip()
+
+
+def generate_bulk_cover_letters(
+    profile: Profile,
+    jobs: list[dict],
+    language: str = "tr",
+    provider: str = "anthropic",
+    model: str | None = None,
+    api_key: str | None = None,
+) -> dict[str, str]:
+    """Birden fazla ilan için tek seferde ön yazı taslağı üretir.
+
+    Döner: {job_url: ön_yazı_metni}
+    """
+    letters: dict[str, str] = {}
+    for job in jobs:
+        job_url = job.get("job_url") or job.get("title", "")
+        title = job.get("title") or ""
+        company = job.get("company") or ""
+        description = job.get("description")
+        if language == "en":
+            letters[job_url] = generate_cover_letter_english(
+                profile, title, company, description, provider=provider, model=model, api_key=api_key
+            )
+        else:
+            letters[job_url] = generate_cover_letter(profile, title, company, description)
+    return letters
+
+
 def render_letter_pdf(
     letter_text: str,
     profile: Profile | None = None,
