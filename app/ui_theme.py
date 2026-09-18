@@ -97,7 +97,29 @@ div[data-testid="stExpander"] details summary {
     }
     div[data-baseweb="tab"] {
         padding: 6px 10px !important;
-        font-size: 0.9rem !important;
+        font-size: 0.85rem !important;
+    }
+    div[data-baseweb="tab-list"] {
+        gap: 2px;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+    }
+    /* Yan yana sütunları dikey akışa çevir (form/karşılaştırma alanları hariç,
+       Streamlit bunu kısmen kendisi yapar; burada boşlukları sıkılaştırıyoruz) */
+    div[data-testid="stHorizontalBlock"] {
+        gap: 0.6rem;
+    }
+    div[data-testid="stMainBlockContainer"] {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+        padding-top: 1.5rem !important;
+    }
+    /* Dokunmatik ekranlarda daha rahat tıklanabilir butonlar */
+    button {
+        min-height: 42px;
+    }
+    div[data-testid="stDataFrame"] {
+        font-size: 0.85rem;
     }
 }
 </style>
