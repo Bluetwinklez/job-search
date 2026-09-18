@@ -334,8 +334,24 @@ with tab_cv:
                 key="cv_theme_select",
             )
 
+        with st.expander("📷 Vesikalık fotoğraf ekle (opsiyonel)"):
+            st.caption(
+                "Bazı sektörlerde/ülkelerde fotoğraflı CV beklenir; ancak bazı ATS "
+                "sistemleri görselli CV'leri daha zor ayrıştırabilir. Eklemek "
+                "tamamen isteğe bağlıdır."
+            )
+            cv_photo = st.file_uploader("Fotoğraf (.jpg, .png)", type=["jpg", "jpeg", "png"], key="cv_photo_upload")
+
         if st.button("PDF Oluştur", type="primary"):
-            pdf = build_cv(profile, theme=selected_theme)
+            photo_path = None
+            if cv_photo is not None:
+                import tempfile
+
+                suffix = Path(cv_photo.name).suffix or ".jpg"
+                tmp_photo = Path(tempfile.gettempdir()) / f"cv_photo_{st.session_state['active_profile']}{suffix}"
+                tmp_photo.write_bytes(cv_photo.getvalue())
+                photo_path = tmp_photo
+            pdf = build_cv(profile, theme=selected_theme, photo_path=photo_path)
             pdf_bytes = bytes(pdf.output())
             st.session_state["cv_pdf_bytes"] = pdf_bytes
             st.success(f"CV oluşturuldu ({THEMES[selected_theme]['name']}).")

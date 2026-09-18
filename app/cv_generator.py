@@ -107,7 +107,13 @@ class CVDocument(FPDF):
         self.ln(2.5)
 
 
-def build_cv(profile: Profile, theme: str = "classic_navy") -> FPDF:
+def build_cv(profile: Profile, theme: str = "classic_navy", photo_path: str | Path | None = None) -> FPDF:
+    """`photo_path` verilirse sağ üst köşeye küçük bir vesikalık fotoğraf eklenir.
+
+    Fotoğraf tamamen opsiyoneldir: bazı sektörlerde/ülkelerde beklenir, ama
+    bazı ATS sistemleri görselli CV'leri daha zor ayrıştırır. Metin akışını
+    etkilemeyecek şekilde (sağ üst köşede, ayrı bir blokta) yerleştirilir.
+    """
     colors = THEMES.get(theme, THEMES["classic_navy"])
     pdf = CVDocument(theme_colors=colors, format="A4")
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -116,6 +122,10 @@ def build_cv(profile: Profile, theme: str = "classic_navy") -> FPDF:
     pdf.add_page()
     pdf.set_margins(MARGIN, MARGIN - 3, MARGIN)
 
+    if photo_path:
+        photo_size = 26
+        photo_x = pdf.w - pdf.r_margin - photo_size
+        pdf.image(str(photo_path), x=photo_x, y=pdf.t_margin, w=photo_size, h=photo_size)
 
     # Başlık / iletişim bilgileri
     pdf.set_font(FONT_FAMILY, "B", 22)
@@ -249,10 +259,12 @@ def build_cv(profile: Profile, theme: str = "classic_navy") -> FPDF:
 
 
 
-def generate_cv(profile_path: Path, output_path: Path, theme: str = "classic_navy") -> None:
+def generate_cv(
+    profile_path: Path, output_path: Path, theme: str = "classic_navy", photo_path: Path | None = None
+) -> None:
     data = json.loads(profile_path.read_text(encoding="utf-8"))
     profile = Profile.model_validate(data)
-    pdf = build_cv(profile, theme=theme)
+    pdf = build_cv(profile, theme=theme, photo_path=photo_path)
     pdf.output(str(output_path))
 
 
@@ -266,9 +278,10 @@ def main() -> None:
         default="classic_navy",
         help=f"CV renk teması: {', '.join(THEMES.keys())}",
     )
+    parser.add_argument("--photo", type=Path, default=None, help="Opsiyonel vesikalık fotoğraf (.jpg/.png)")
     args = parser.parse_args()
 
-    generate_cv(args.profile, args.output, theme=args.theme)
+    generate_cv(args.profile, args.output, theme=args.theme, photo_path=args.photo)
     print(f"CV oluşturuldu ({args.theme}): {args.output}")
 
 

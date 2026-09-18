@@ -54,6 +54,18 @@ class TestCVGenerator(unittest.TestCase):
             self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
 
 
+    def test_build_cv_with_photo(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            photo_path = Path(tmp_dir) / "photo.jpg"
+            Image.new("RGB", (100, 100), color=(100, 120, 140)).save(photo_path)
+
+            pdf = build_cv(self.profile, photo_path=photo_path)
+            pdf_bytes = bytes(pdf.output())
+            self.assertGreater(len(pdf_bytes), 1000)
+            self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
+
     def test_render_cover_letter_pdf(self):
         letter_text = "Sayın Yetkili,\n\nPozisyon için başvurumu iletiyorum.\n\nSaygılarımla,\nAyşe Kaya"
         pdf = render_letter_pdf(letter_text)
