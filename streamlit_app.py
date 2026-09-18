@@ -15,7 +15,12 @@ import streamlit as st
 from pydantic import ValidationError
 
 from app import profile_store
-from app.cover_letter import generate_cover_letter, render_letter_pdf
+from app.cover_letter import (
+    generate_bulk_cover_letters,
+    generate_cover_letter,
+    generate_cover_letter_english,
+    render_letter_pdf,
+)
 from app.cv_generator import THEMES, build_cv
 from app.cv_rewrite import rewrite_cv
 from app.cv_tailor import tailor_profile
@@ -1031,9 +1036,25 @@ with tab_letter:
             key="letter_description",
             height=150,
         )
+        letter_language = st.radio("Dil", options=["Türkçe", "İngilizce"], horizontal=True, key="letter_language")
         if st.button("Taslak Oluştur", type="primary"):
             if not company:
                 st.error("Şirket adını gir.")
+            elif letter_language == "İngilizce":
+                try:
+                    with st.spinner("İngilizce taslak yapay zeka ile hazırlanıyor..."):
+                        letter = generate_cover_letter_english(
+                            profile,
+                            job_title,
+                            company,
+                            job_description or None,
+                            provider=provider_choice,
+                            model=model_choice,
+                            api_key=api_key_input or None,
+                        )
+                    st.session_state["cover_letter_text"] = letter
+                except Exception as exc:
+                    st.error(f"İngilizce taslak oluşturulamadı: {exc}")
             else:
                 letter = generate_cover_letter(profile, job_title, company, job_description or None)
                 st.session_state["cover_letter_text"] = letter
@@ -1054,3 +1075,64 @@ with tab_letter:
                 file_name=f"{profile.contact.full_name.replace(' ', '_')}_On_Yazi.pdf",
                 mime="application/pdf",
             )
+
+        st.divider()
+        with st.expander("📨 Toplu Ön Yazı Üretimi"):
+            st.caption("Kayıtlı ilanlardan birden fazlasını seçip hepsi için tek seferde ön yazı taslağı üret.")
+            if not DB_PATH.exists():
+                st.info("Henüz kayıtlı ilan yok. Önce 'İş Ara' sekmesinden ilan kaydet.")
+            else:
+                bulk_rows = list_jobs(DB_PATH, limit=200)
+                if len(bulk_rows) < 2:
+                    st.info("Toplu üretim için en az 2 kayıtlı ilan gerekir.")
+                else:
+                    bulk_options = {f"{r['title']} — {r['company']}": r["job_url"] for r in bulk_rows}
+                    bulk_selected = st.multiselect(
+                        "İlanları seç",
+                        options=list(bulk_options.keys()),
+                        key="bulk_letter_select",
+                    )
+                    bulk_language = st.radio(
+                        "Dil", options=["Türkçe", "İngilizce"], horizontal=True, key="bulk_letter_language"
+                    )
+                    if st.button("Seçili İlanlar İçin Taslaklar Üret", key="bulk_letter_generate_btn"):
+                        if not bulk_selected:
+                            st.warning("En az bir ilan seç.")
+                        else:
+                            bulk_jobs = [dict(get_job(DB_PATH, bulk_options[lbl])) for lbl in bulk_selected]
+                            try:
+                                with st.spinner(f"{len(bulk_jobs)} ilan için taslaklar hazırlanıyor..."):
+                                    bulk_letters = generate_bulk_cover_letters(
+                                        profile,
+                                        bulk_jobs,
+                                        language="en" if bulk_language == "İngilizce" else "tr",
+                                        provider=provider_choice,
+                                        model=model_choice,
+                                        api_key=api_key_input or None,
+                                    )
+                                st.session_state["bulk_cover_letters"] = bulk_letters
+                            except Exception as exc:
+                                st.error(f"Toplu üretim başarısız: {exc}")
+
+                    if st.session_state.get("bulk_cover_letters"):
+                        import io
+                        import zipfile
+
+                        zip_buffer = io.BytesIO()
+                        with zipfile.ZipFile(zip_buffer, "w") as zf:
+                            for job_url, letter_text in st.session_state["bulk_cover_letters"].items():
+                                job = get_job(DB_PATH, job_url)
+                                fname = f"{(job['company'] if job else 'ilan').replace(' ', '_')}_on_yazi.txt"
+                                zf.writestr(fname, letter_text)
+                        st.download_button(
+                            "📦 Tüm Taslakları ZIP Olarak İndir",
+                            data=zip_buffer.getvalue(),
+                            file_name="toplu_on_yazilar.zip",
+                            mime="application/zip",
+                            key="bulk_letter_zip_dl",
+                        )
+                        for job_url, letter_text in st.session_state["bulk_cover_letters"].items():
+                            job = get_job(DB_PATH, job_url)
+                            label = f"{job['title']} — {job['company']}" if job else job_url
+                            with st.expander(label):
+                                st.text(letter_text)
