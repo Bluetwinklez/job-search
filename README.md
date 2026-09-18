@@ -1,42 +1,58 @@
 # İş Arama Asistanı
 
-Merkezi bir profilden ATS-dostu (başvuru takip sistemi tarafından kolayca
-okunabilen) PDF CV üreten; LinkedIn, Indeed, Glassdoor, Google,
-ZipRecruiter, Bayt ve Naukri'den aynı anda iş ilanı tarayıp eşleştirme
-skoruyla kaydeden; başvuru durumunu takip eden; ilana özel ön yazı taslağı
-ve (Claude API ile) ilana özel uyarlanmış CV üreten bir araç seti. Hepsi
-tek bir web arayüzünden kullanılabilir.
+Tek bir profilden başlayıp iş arama sürecinin tamamını kapsayan bir araç
+seti: **ATS-dostu CV oluşturma**, **çoklu platformdan iş ilanı tarama**,
+**başvuru takibi**, **ön yazı taslağı** ve (Claude API ile) **ilana özel
+CV uyarlama / var olan CV'yi yeniden yazma**. Hepsi tek bir web
+arayüzünden ya da ayrı ayrı komut satırı araçlarından kullanılabilir.
 
-## Yol Haritası
-
-- [x] Merkezi profil şeması (`app/models.py`)
-- [x] Profilden ATS-dostu PDF CV üretimi (`app/cv_generator.py`)
-- [x] Çoklu platformdan iş ilanı tarama + yerel kayıt (`app/job_search.py`, [JobSpy](https://github.com/speedyapply/JobSpy) tabanlı)
-- [x] İlan / profil yetenek eşleşme skoru
-- [x] Başvuru takibi (durum: yeni/başvuruldu/mülakat/reddedildi/teklif) (`app/tracker.py`)
-- [x] İlana özel ön yazı taslağı (`app/cover_letter.py`)
-- [x] Web arayüzü (`streamlit_app.py`)
-- [x] İlana özel CV uyarlama (`app/cv_tailor.py`, Claude API ile)
-- [x] Var olan bir CV'yi ATS-dostu şekilde yeniden yazma (`app/cv_rewrite.py`, Claude API ile)
-
-## Kurulum
+## Hızlı Başlangıç
 
 ```bash
 pip install -r requirements.txt
-```
-
-## Web Arayüzü (önerilen)
-
-Profil düzenleme, CV oluşturma, iş arama, başvuru takibi ve ön yazı
-oluşturmayı tek yerden yapan arayüz:
-
-```bash
+cp data/profile.example.json data/profile.json   # kendi bilgilerinle doldur
 streamlit run streamlit_app.py
 ```
 
-Tarayıcıda `http://localhost:8501` açılır. Sekmeler: **Profil**, **CV
-Oluştur**, **İş Ara**, **Başvurularım**, **Ön Yazı**. Aşağıdaki bölümler
-aynı işlevlerin komut satırı karşılıklarını anlatır.
+Tarayıcıda `http://localhost:8501` açılır. Beş sekme: **Profil**, **CV
+Oluştur**, **İş Ara**, **Başvurularım**, **Ön Yazı**.
+
+## Özellikler
+
+| Özellik | Modül | LLM gerekli mi? |
+|---|---|---|
+| ATS-dostu PDF CV üretimi | `app/cv_generator.py` | Hayır |
+| Çoklu platformdan iş ilanı tarama (LinkedIn, Indeed, Glassdoor, Google, ZipRecruiter, Bayt, Naukri) | `app/job_search.py` | Hayır |
+| İlan / profil eşleşme skoru | `app/job_search.py` | Hayır |
+| Başvuru durumu takibi | `app/tracker.py` | Hayır |
+| İlana özel ön yazı taslağı (PDF/metin) | `app/cover_letter.py` | Hayır |
+| İlana özel CV uyarlama | `app/cv_tailor.py` | Evet (Claude API) |
+| Var olan bir CV'yi ATS-dostu yeniden yazma | `app/cv_rewrite.py` | Evet (Claude API) |
+| Web arayüzü (hepsini birleştirir) | `streamlit_app.py` | — |
+
+Claude API gerektiren iki özellik (`cv_tailor`, `cv_rewrite`) için
+ortamda `ANTHROPIC_API_KEY` tanımlı olmalı; diğer tüm özellikler
+anahtar gerektirmeden çalışır.
+
+## Proje Yapısı
+
+```
+app/
+  models.py         # Merkezi profil şeması (Pydantic)
+  cv_generator.py    # Profilden ATS-dostu PDF CV üretimi
+  job_search.py      # Çoklu platform iş ilanı tarama + SQLite kayıt + eşleşme skoru
+  tracker.py         # Başvuru durumu takip CLI'ı
+  cover_letter.py     # Ön yazı taslağı üretimi (metin + PDF)
+  cv_tailor.py        # İlana özel CV uyarlama (Claude API)
+  cv_rewrite.py       # Var olan CV'yi ATS-dostu yeniden yazma (Claude API)
+  matching.py         # Anahtar kelime eşleştirme yardımcıları (paylaşılan)
+data/
+  profile.example.json  # Örnek profil
+  profile.json          # Kendi profilin (git'e girmez, .gitignore'da)
+  jobs.db                # Taranan ilanlar (git'e girmez)
+assets/fonts/            # PDF'lerde Türkçe karakter desteği için gömülü font
+streamlit_app.py          # Tüm özellikleri birleştiren web arayüzü
+```
 
 ## 1. CV Oluşturma
 
@@ -88,14 +104,18 @@ python -m app.job_search \
 ```
 
 Varsayılan olarak tüm platformlar (`linkedin,indeed,glassdoor,google,zip_recruiter,bayt,naukri`)
-taranır; `--sites linkedin,indeed` gibi bir alt küme de verilebilir. Bir
-platform o ülke/sorgu için desteklenmiyorsa (ör. Glassdoor bazı ülkelerde
-çalışmaz) o platform atlanır, uyarı basılır ve diğer platformlardan gelen
-sonuçlar yine de kaydedilir.
+taranır; `--sites linkedin,indeed` gibi bir alt küme de verilebilir. Her
+platform kendi izole thread'inde paralel taranır: bir platform o ülke/
+sorgu için desteklenmiyorsa (ör. Glassdoor bazı ülkelerde çalışmaz)
+yalnızca o platform atlanır, uyarı basılır ve diğer platformlardan gelen
+sonuçlar yine de kaydedilir — hiçbir sonuç gereksiz yere tekrar taranmaz.
 
 Sonuçlar `data/jobs.db` (SQLite) içine tekilleştirilerek kaydedilir;
 `--profile` verilirse her ilan için profildeki yetenek/teknoloji
-anahtar kelimeleriyle basit bir eşleşme skoru (0-1) hesaplanır.
+anahtar kelimeleriyle bir eşleşme skoru (0-1) hesaplanır. Skor hem tam
+ifadeleri (ör. "Python") hem de çok kelimeli ifadelerin ("Reçete
+karşılama" gibi) tekil kelimelerini dikkate alır — böylece teknik
+olmayan/Türkçe yetenek listelerinde de anlamlı bir skor üretilir.
 
 Diğer parametreler:
 
@@ -126,9 +146,10 @@ reddedildi + teklif / başvuruldu ve sonrası) gösterir.
 
 ## 4. Ön Yazı Taslağı
 
-LLM gerektirmez: profildeki özet, en güncel deneyim ve (verilirse) ilan
-açıklamasıyla eşleşen yetenekleri birleştirip düzenlenebilir bir taslak
-üretir.
+LLM gerektirmez: profildeki özet, ilana **en alakalı** deneyim (ilan
+başlığı/açıklamasıyla ortak anahtar kelimelere göre otomatik seçilir) ve
+eşleşen yetenekleri birleştirip düzenlenebilir bir taslak üretir. Hem
+düz metin hem de PDF çıktısı alınabilir.
 
 ```bash
 python -m app.cover_letter \
@@ -136,8 +157,13 @@ python -m app.cover_letter \
   --title "Backend Developer" \
   --company "Acme Tech" \
   --job-description-file ilan.txt \
-  --output cover_letter.txt
+  --output cover_letter.txt \
+  --pdf cover_letter.pdf
 ```
+
+Web arayüzünde **Ön Yazı** sekmesinde, `data/jobs.db`'ye kaydedilmiş bir
+ilanı seçip alanları otomatik doldurabilir, taslağı düzenleyip hem
+`.txt` hem `.pdf` olarak indirebilirsin.
 
 ## 5. İlana Özel CV Uyarlama (Claude API ile)
 
@@ -185,3 +211,9 @@ Web arayüzünde **Profil** sekmesindeki "Var olan bir CV'yi yükle ve
 yeniden yaz (Claude ile)" bölümünden `.pdf`/`.txt` yükleyebilir ya da
 metni doğrudan yapıştırabilirsin; sonuç profil düzenleyicisine
 otomatik doldurulur, incelendikten sonra "Kaydet"e basman yeterli.
+
+## Gizlilik
+
+`data/profile.json` ve `data/jobs.db` `.gitignore`'da tanımlıdır ve
+repoya commit edilmez — kişisel bilgilerin (iletişim bilgileri, taranan
+ilanlar) yalnızca kendi makinende kalır.
