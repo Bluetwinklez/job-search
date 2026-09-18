@@ -59,16 +59,52 @@ CREATE TABLE IF NOT EXISTS jobs (
     status TEXT NOT NULL DEFAULT 'yeni',
     notes TEXT
 );
+
+CREATE TABLE IF NOT EXISTS saved_searches (
+    name TEXT PRIMARY KEY,
+    search_term TEXT,
+    location TEXT,
+    sites TEXT,
+    is_remote INTEGER DEFAULT 0,
+    created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS search_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    search_term TEXT,
+    location TEXT,
+    sites TEXT,
+    result_count INTEGER,
+    searched_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS company_watchlist (
+    company TEXT PRIMARY KEY,
+    search_term TEXT,
+    added_at TEXT
+);
 """
+
+_JOBS_EXTRA_COLUMNS = {
+    "favorite": "INTEGER NOT NULL DEFAULT 0",
+    "min_amount": "REAL",
+    "max_amount": "REAL",
+    "currency": "TEXT",
+    "salary_interval": "TEXT",
+    "is_remote": "INTEGER",
+}
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    conn.execute(SCHEMA)
+    conn.executescript(SCHEMA)
     existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
     if "status" not in existing_cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN status TEXT NOT NULL DEFAULT 'yeni'")
     if "notes" not in existing_cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN notes TEXT")
+    for col, col_type in _JOBS_EXTRA_COLUMNS.items():
+        if col not in existing_cols:
+            conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {col_type}")
 
 
 def _profile_keywords(profile: Profile) -> set[str]:
@@ -122,6 +158,7 @@ def search_jobs(
     hours_old: int | None = None,
     country_indeed: str = "turkey",
     linkedin_fetch_description: bool = False,
+    is_remote: bool = False,
 ):
     """Verilen platformları paralel ve birbirinden izole şekilde tarar.
 
@@ -147,6 +184,7 @@ def search_jobs(
             description_format="markdown",
             country_indeed=country_indeed,
             linkedin_fetch_description=linkedin_fetch_description,
+            is_remote=is_remote,
         )
 
     frames = []
@@ -195,6 +233,13 @@ def save_jobs(df, db_path: Path, profile: Profile | None = None) -> int:
         search_text = f"{title or ''}\n{description or ''}".strip()
         score = _match_score(search_text, keywords) if keywords else None
 
+        min_amount = row.get("min_amount")
+        max_amount = row.get("max_amount")
+        currency = _clean(row.get("currency"))
+        salary_interval = _clean(row.get("interval"))
+        is_remote = row.get("is_remote")
+        is_remote = int(bool(is_remote)) if is_remote is not None and not pd.isna(is_remote) else None
+
         # Gerçekten yeni mi kontrol et (SQLite rowcount yanılgısını önlemek için)
         exists = conn.execute("SELECT 1 FROM jobs WHERE job_url = ?", (job_url,)).fetchone()
         if not exists:
@@ -203,8 +248,9 @@ def save_jobs(df, db_path: Path, profile: Profile | None = None) -> int:
         conn.execute(
             """
             INSERT INTO jobs (job_url, site, title, company, location, job_type,
-                               date_posted, description, match_score, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               date_posted, description, match_score, fetched_at,
+                               min_amount, max_amount, currency, salary_interval, is_remote)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(job_url) DO UPDATE SET
                 match_score = COALESCE(excluded.match_score, jobs.match_score),
                 description = CASE WHEN excluded.description IS NOT NULL AND excluded.description != ''
@@ -215,6 +261,11 @@ def save_jobs(df, db_path: Path, profile: Profile | None = None) -> int:
                                    THEN excluded.date_posted ELSE jobs.date_posted END,
                 job_type = CASE WHEN excluded.job_type IS NOT NULL AND excluded.job_type != ''
                                 THEN excluded.job_type ELSE jobs.job_type END,
+                min_amount = COALESCE(excluded.min_amount, jobs.min_amount),
+                max_amount = COALESCE(excluded.max_amount, jobs.max_amount),
+                currency = COALESCE(excluded.currency, jobs.currency),
+                salary_interval = COALESCE(excluded.salary_interval, jobs.salary_interval),
+                is_remote = COALESCE(excluded.is_remote, jobs.is_remote),
                 fetched_at = excluded.fetched_at
             """,
             (
@@ -228,6 +279,11 @@ def save_jobs(df, db_path: Path, profile: Profile | None = None) -> int:
                 description,
                 score,
                 fetched_at,
+                min_amount,
+                max_amount,
+                currency,
+                salary_interval,
+                is_remote,
             ),
         )
     conn.commit()
@@ -241,6 +297,7 @@ def list_jobs(
     limit: int = 20,
     min_score: float | None = None,
     status: str | None = None,
+    favorite_only: bool = False,
 ):
     if not db_path.exists():
         return []
@@ -249,7 +306,8 @@ def list_jobs(
     _ensure_schema(conn)
     query = (
         "SELECT job_url, site, title, company, location, job_type, date_posted, "
-        "match_score, status, notes, fetched_at FROM jobs"
+        "match_score, status, notes, fetched_at, favorite, min_amount, max_amount, "
+        "currency, salary_interval, is_remote FROM jobs"
     )
     clauses = []
     params: list = []
@@ -259,6 +317,8 @@ def list_jobs(
     if status is not None:
         clauses.append("status = ?")
         params.append(status)
+    if favorite_only:
+        clauses.append("favorite = 1")
     if clauses:
         query += " WHERE " + " AND ".join(clauses)
     query += " ORDER BY fetched_at DESC LIMIT ?"
@@ -294,6 +354,117 @@ def set_status(db_path: Path, job_url: str, status: str, notes: str | None = Non
     return updated
 
 
+def toggle_favorite(db_path: Path, job_url: str, favorite: bool) -> bool:
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    cur = conn.execute("UPDATE jobs SET favorite = ? WHERE job_url = ?", (int(favorite), job_url))
+    conn.commit()
+    updated = cur.rowcount > 0
+    conn.close()
+    return updated
+
+
+# ------------------------------------------------------------- Kayıtlı aramalar -
+def save_search(db_path: Path, name: str, search_term: str, location: str | None, sites: list[str], is_remote: bool = False) -> None:
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    conn.execute(
+        """
+        INSERT INTO saved_searches (name, search_term, location, sites, is_remote, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET
+            search_term = excluded.search_term, location = excluded.location,
+            sites = excluded.sites, is_remote = excluded.is_remote
+        """,
+        (name, search_term, location or "", ",".join(sites), int(is_remote), datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def list_saved_searches(db_path: Path):
+    if not db_path.exists():
+        return []
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    _ensure_schema(conn)
+    rows = conn.execute("SELECT * FROM saved_searches ORDER BY created_at DESC").fetchall()
+    conn.close()
+    return rows
+
+
+def delete_saved_search(db_path: Path, name: str) -> bool:
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    cur = conn.execute("DELETE FROM saved_searches WHERE name = ?", (name,))
+    conn.commit()
+    deleted = cur.rowcount > 0
+    conn.close()
+    return deleted
+
+
+# --------------------------------------------------------------- Arama geçmişi -
+def log_search(db_path: Path, search_term: str, location: str | None, sites: list[str], result_count: int) -> None:
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    conn.execute(
+        "INSERT INTO search_log (search_term, location, sites, result_count, searched_at) VALUES (?, ?, ?, ?, ?)",
+        (search_term, location or "", ",".join(sites), result_count, datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def list_search_history(db_path: Path, limit: int = 30):
+    if not db_path.exists():
+        return []
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    _ensure_schema(conn)
+    rows = conn.execute(
+        "SELECT * FROM search_log ORDER BY searched_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+# --------------------------------------------------------------- Şirket takibi -
+def add_watched_company(db_path: Path, company: str, search_term: str) -> None:
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    conn.execute(
+        """
+        INSERT INTO company_watchlist (company, search_term, added_at) VALUES (?, ?, ?)
+        ON CONFLICT(company) DO UPDATE SET search_term = excluded.search_term
+        """,
+        (company, search_term, datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def remove_watched_company(db_path: Path, company: str) -> bool:
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    cur = conn.execute("DELETE FROM company_watchlist WHERE company = ?", (company,))
+    conn.commit()
+    removed = cur.rowcount > 0
+    conn.close()
+    return removed
+
+
+def list_watched_companies(db_path: Path):
+    if not db_path.exists():
+        return []
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    _ensure_schema(conn)
+    rows = conn.execute("SELECT * FROM company_watchlist ORDER BY added_at DESC").fetchall()
+    conn.close()
+    return rows
+
+
 def get_stats(db_path: Path) -> dict:
     if not db_path.exists():
         return {"total": 0, "by_status": {s: 0 for s in STATUSES}}
@@ -326,6 +497,7 @@ def main() -> None:
     )
     parser.add_argument("--profile", type=Path, default=None, help="Eşleşme skoru için profil JSON dosyası")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH, help="SQLite veritabanı yolu")
+    parser.add_argument("--remote", action="store_true", help="Yalnızca uzaktan çalışma ilanları")
     args = parser.parse_args()
 
     sites = [s.strip() for s in args.sites.split(",") if s.strip()]
@@ -341,15 +513,18 @@ def main() -> None:
         args.hours_old,
         args.country_indeed,
         args.linkedin_descriptions,
+        args.remote,
     )
     for site, error in errors:
         print(f"Uyarı: {site} taranamadı ({error})")
 
     if df is None or df.empty:
         print("Sonuç bulunamadı.")
+        log_search(args.db, args.search_term, args.location, sites, 0)
         return
 
     new_count = save_jobs(df, args.db, profile)
+    log_search(args.db, args.search_term, args.location, sites, len(df))
     print(f"{len(df)} ilan tarandı, {new_count} yeni ilan '{args.db}' içine kaydedildi.")
 
 

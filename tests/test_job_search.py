@@ -18,12 +18,21 @@ except ImportError:
 
 from app.job_search import (
     _match_score,
+    add_watched_company,
+    delete_saved_search,
     get_job,
     get_matched_skills,
     get_stats,
     list_jobs,
+    list_saved_searches,
+    list_search_history,
+    list_watched_companies,
+    log_search,
+    remove_watched_company,
     save_jobs,
+    save_search,
     set_status,
+    toggle_favorite,
 )
 from app.models import ContactInfo, Experience, Profile, SkillGroup
 
@@ -137,6 +146,58 @@ class TestJobSearch(unittest.TestCase):
         score = _match_score(text, {"medula", "reçete", "stok"})
         self.assertIsNotNone(score)
         self.assertGreater(score, 0.0)
+
+    def test_favorite_and_salary(self):
+        df = create_df(
+            [
+                {
+                    "job_url": "https://example.com/job1",
+                    "site": "linkedin",
+                    "title": "Eczane Teknisyeni",
+                    "company": "Merkez Eczane",
+                    "min_amount": 25000,
+                    "max_amount": 35000,
+                    "currency": "TRY",
+                    "interval": "monthly",
+                    "is_remote": False,
+                }
+            ]
+        )
+        save_jobs(df, self.db_path)
+        job = get_job(self.db_path, "https://example.com/job1")
+        self.assertEqual(job["min_amount"], 25000)
+        self.assertEqual(job["currency"], "TRY")
+        self.assertEqual(job["favorite"], 0)
+
+        toggle_favorite(self.db_path, "https://example.com/job1", True)
+        favs = list_jobs(self.db_path, favorite_only=True)
+        self.assertEqual(len(favs), 1)
+
+    def test_saved_searches(self):
+        save_search(self.db_path, "eczane_ist", "Eczane Teknisyeni", "Istanbul", ["linkedin", "indeed"])
+        searches = list_saved_searches(self.db_path)
+        self.assertEqual(len(searches), 1)
+        self.assertEqual(searches[0]["name"], "eczane_ist")
+
+        deleted = delete_saved_search(self.db_path, "eczane_ist")
+        self.assertTrue(deleted)
+        self.assertEqual(len(list_saved_searches(self.db_path)), 0)
+
+    def test_search_log(self):
+        log_search(self.db_path, "Eczane Teknisyeni", "Istanbul", ["linkedin"], 12)
+        history = list_search_history(self.db_path)
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["result_count"], 12)
+
+    def test_company_watchlist(self):
+        add_watched_company(self.db_path, "Acme", "Eczane Teknisyeni")
+        watched = list_watched_companies(self.db_path)
+        self.assertEqual(len(watched), 1)
+        self.assertEqual(watched[0]["company"], "Acme")
+
+        removed = remove_watched_company(self.db_path, "Acme")
+        self.assertTrue(removed)
+        self.assertEqual(len(list_watched_companies(self.db_path)), 0)
 
 
 if __name__ == "__main__":

@@ -22,13 +22,22 @@ from app.cv_tailor import tailor_profile
 from app.job_search import (
     ALL_SITES,
     STATUSES,
+    add_watched_company,
+    delete_saved_search,
     get_job,
     get_matched_skills,
     get_stats,
     list_jobs,
+    list_saved_searches,
+    list_search_history,
+    list_watched_companies,
+    log_search,
+    remove_watched_company,
     save_jobs,
+    save_search,
     search_jobs,
     set_status,
+    toggle_favorite,
 )
 from app.models import Profile
 
@@ -254,16 +263,74 @@ with tab_cv:
 # ------------------------------------------------------------------ İş Ara --
 with tab_search:
     st.subheader("Çoklu Platformdan İş İlanı Ara")
+
+    st.session_state.setdefault("search_term_val", "Backend Developer")
+    st.session_state.setdefault("location_val", "Istanbul, Turkey")
+    st.session_state.setdefault("sites_val", ALL_SITES)
+    st.session_state.setdefault("remote_val", False)
+
+    with st.expander("📌 Kayıtlı Aramalar"):
+        saved = list_saved_searches(DB_PATH) if DB_PATH.parent.exists() else []
+        if not saved:
+            st.caption("Henüz kayıtlı arama şablonu yok. Arama yaptıktan sonra aşağıdan kaydedebilirsin.")
+        else:
+            for s in saved:
+                sc1, sc2, sc3 = st.columns([3, 1, 1])
+                sc1.write(f"**{s['name']}** — {s['search_term']} @ {s['location'] or '(her yer)'}")
+                if sc2.button("Çalıştır", key=f"run_saved_{s['name']}"):
+                    st.session_state["search_term_val"] = s["search_term"]
+                    st.session_state["location_val"] = s["location"]
+                    st.session_state["sites_val"] = s["sites"].split(",")
+                    st.session_state["remote_val"] = bool(s["is_remote"])
+                    st.rerun()
+                if sc3.button("Sil", key=f"del_saved_{s['name']}"):
+                    delete_saved_search(DB_PATH, s["name"])
+                    st.rerun()
+
+    with st.expander("🏢 Şirket Takip Listesi"):
+        st.caption("Takip ettiğin şirketler için 'Şimdi Kontrol Et' ile hızlıca yeni ilan arayabilirsin.")
+        wc1, wc2 = st.columns([3, 1])
+        watch_company = wc1.text_input("Şirket adı", key="watch_company_input")
+        if wc2.button("Ekle", key="add_watch_btn"):
+            if watch_company.strip():
+                add_watched_company(DB_PATH, watch_company.strip(), st.session_state["search_term_val"])
+                st.rerun()
+        watched = list_watched_companies(DB_PATH) if DB_PATH.parent.exists() else []
+        for w in watched:
+            wl1, wl2, wl3 = st.columns([3, 1, 1])
+            wl1.write(f"**{w['company']}** ({w['search_term']})")
+            if wl2.button("Kontrol Et", key=f"check_watch_{w['company']}"):
+                with st.spinner(f"{w['company']} için kontrol ediliyor..."):
+                    wdf, _ = search_jobs(f"{w['search_term']} {w['company']}", None, ALL_SITES, 10)
+                if wdf is not None and not wdf.empty:
+                    n = save_jobs(wdf, DB_PATH, try_load_profile())
+                    st.success(f"{w['company']}: {n} yeni ilan bulundu ve kaydedildi.")
+                else:
+                    st.info(f"{w['company']}: sonuç bulunamadı.")
+            if wl3.button("Kaldır", key=f"remove_watch_{w['company']}"):
+                remove_watched_company(DB_PATH, w["company"])
+                st.rerun()
+
+    with st.expander("🕐 Arama Geçmişi"):
+        history = list_search_history(DB_PATH) if DB_PATH.parent.exists() else []
+        if not history:
+            st.caption("Henüz arama yapılmadı.")
+        else:
+            for h in history[:15]:
+                st.caption(f"{h['searched_at'][:16].replace('T', ' ')} — \"{h['search_term']}\" @ {h['location'] or '(her yer)'} → {h['result_count']} sonuç")
+
     with st.form("search_form"):
         c1, c2 = st.columns(2)
-        search_term = c1.text_input("Pozisyon / anahtar kelime", value="Backend Developer")
-        location = c2.text_input("Konum", value="Istanbul, Turkey")
-        sites = st.multiselect("Platformlar", options=ALL_SITES, default=ALL_SITES)
+        search_term = c1.text_input("Pozisyon / anahtar kelime", key="search_term_val")
+        location = c2.text_input("Konum", key="location_val")
+        sites = st.multiselect("Platformlar", options=ALL_SITES, key="sites_val")
         c3, c4, c5 = st.columns(3)
         results = c3.number_input("Platform başına sonuç", min_value=1, max_value=50, value=10)
         hours_old = c4.number_input("Son X saat (0 = sınırsız)", min_value=0, value=0)
         country_indeed = c5.text_input("Indeed ülke", value="turkey")
-        linkedin_desc = st.checkbox(
+        c6, c7 = st.columns(2)
+        remote_only = c6.checkbox("Yalnızca uzaktan çalışma", key="remote_val")
+        linkedin_desc = c7.checkbox(
             "LinkedIn açıklamalarını da çek (eşleşme skoru için gerekir, daha yavaştır)",
             value=False,
         )
@@ -280,16 +347,37 @@ with tab_search:
                 int(hours_old) or None,
                 country_indeed,
                 linkedin_desc,
+                remote_only,
             )
         for site, error in errors:
             st.warning(f"{site} taranamadı: {error}")
+        log_search(DB_PATH, search_term, location, sites, 0 if df is None else len(df))
         if df is None or df.empty:
             st.info("Sonuç bulunamadı.")
         else:
             new_count = save_jobs(df, DB_PATH, profile)
             st.success(f"{len(df)} ilan tarandı, {new_count} yeni ilan kaydedildi.")
-            show_cols = [c for c in ["site", "title", "company", "location", "job_url"] if c in df.columns]
+            show_cols = [
+                c for c in ["site", "title", "company", "location", "min_amount", "max_amount", "currency", "is_remote", "job_url"]
+                if c in df.columns
+            ]
             st.dataframe(df[show_cols], use_container_width=True, hide_index=True)
+
+    with st.expander("💾 Bu aramayı şablon olarak kaydet"):
+        template_name = st.text_input("Şablon adı", key="save_search_name")
+        if st.button("Kaydet", key="save_search_btn"):
+            if template_name.strip():
+                save_search(
+                    DB_PATH,
+                    template_name.strip(),
+                    st.session_state["search_term_val"],
+                    st.session_state["location_val"],
+                    st.session_state["sites_val"],
+                    st.session_state["remote_val"],
+                )
+                st.success(f"'{template_name}' kaydedildi.")
+            else:
+                st.error("Şablon adı gir.")
 
 # ------------------------------------------------------------ Başvurularım --
 with tab_tracker:
@@ -352,18 +440,23 @@ with tab_tracker:
 
         st.divider()
         st.subheader("İlan Detayları ve Durum Yönetimi")
-        status_filter = st.selectbox("Duruma göre filtrele", options=["(hepsi)"] + STATUSES)
+        fc1, fc2 = st.columns([3, 1])
+        status_filter = fc1.selectbox("Duruma göre filtrele", options=["(hepsi)"] + STATUSES)
+        favorite_only = fc2.checkbox("⭐ Yalnızca favoriler")
         rows = list_jobs(
             DB_PATH,
             limit=200,
             status=None if status_filter == "(hepsi)" else status_filter,
+            favorite_only=favorite_only,
         )
         if not rows:
             st.info("Kayıt bulunamadı.")
         else:
             df = pd.DataFrame([dict(r) for r in rows])
+            df["⭐"] = df["favorite"].apply(lambda v: "⭐" if v else "")
+            show_cols = [c for c in ["⭐", "title", "company", "site", "location", "min_amount", "max_amount", "currency", "match_score", "status", "job_url"] if c in df.columns]
             st.dataframe(
-                df[["title", "company", "site", "location", "match_score", "status", "job_url"]],
+                df[show_cols],
                 use_container_width=True,
                 hide_index=True,
             )
@@ -385,6 +478,11 @@ with tab_tracker:
             selected_url = options[selected_label]
             selected_job_data = get_job(DB_PATH, selected_url)
             if selected_job_data:
+                is_fav = bool(selected_job_data["favorite"])
+                if st.button("💔 Favorilerden Çıkar" if is_fav else "⭐ Favorilere Ekle", key=f"fav_{selected_url}"):
+                    toggle_favorite(DB_PATH, selected_url, not is_fav)
+                    st.rerun()
+
                 prof_for_match = try_load_profile()
                 if prof_for_match:
                     full_text = f"{selected_job_data['title'] or ''} {selected_job_data['description'] or ''}"
