@@ -101,6 +101,15 @@ CREATE TABLE IF NOT EXISTS interview_questions (
     personal_answer TEXT,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS job_activities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_url TEXT NOT NULL,
+    old_status TEXT,
+    new_status TEXT NOT NULL,
+    note TEXT,
+    created_at TEXT NOT NULL
+);
 """
 
 _JOBS_EXTRA_COLUMNS = {
@@ -111,6 +120,7 @@ _JOBS_EXTRA_COLUMNS = {
     "salary_interval": "TEXT",
     "is_remote": "INTEGER",
     "interview_at": "TEXT",
+    "tags": "TEXT",
 }
 
 
@@ -386,6 +396,7 @@ def list_jobs(
     favorite_only: bool = False,
     remote_only: bool = False,
     filter_blacklisted: bool = True,
+    tag: str | None = None,
 ):
     if not db_path.exists():
         return []
@@ -395,7 +406,7 @@ def list_jobs(
     query = (
         "SELECT job_url, site, title, company, location, job_type, date_posted, "
         "match_score, status, notes, fetched_at, favorite, min_amount, max_amount, "
-        "currency, salary_interval, is_remote, description FROM jobs"
+        "currency, salary_interval, is_remote, description, tags FROM jobs"
     )
     clauses = []
     params: list = []
@@ -409,6 +420,9 @@ def list_jobs(
         clauses.append("favorite = 1")
     if remote_only:
         clauses.append("is_remote = 1")
+    if tag:
+        clauses.append("tags LIKE ?")
+        params.append(f"%{tag.strip()}%")
     if clauses:
         query += " WHERE " + " AND ".join(clauses)
     query += " ORDER BY fetched_at DESC"
@@ -441,12 +455,50 @@ def set_status(db_path: Path, job_url: str, status: str, notes: str | None = Non
         raise ValueError(f"Geçersiz durum: {status!r}. Geçerli değerler: {', '.join(STATUSES)}")
     conn = sqlite3.connect(db_path)
     _ensure_schema(conn)
+    cur = conn.execute("SELECT status FROM jobs WHERE job_url = ?", (job_url,))
+    old_row = cur.fetchone()
+    old_status = old_row[0] if old_row else None
+
     if notes is None:
         cur = conn.execute("UPDATE jobs SET status = ? WHERE job_url = ?", (status, job_url))
     else:
         cur = conn.execute(
             "UPDATE jobs SET status = ?, notes = ? WHERE job_url = ?", (status, notes, job_url)
         )
+    updated = cur.rowcount > 0
+    if updated and (old_status != status or notes):
+        now_str = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO job_activities (job_url, old_status, new_status, note, created_at) VALUES (?, ?, ?, ?, ?)",
+            (job_url, old_status, status, notes or "", now_str),
+        )
+    conn.commit()
+    conn.close()
+    return updated
+
+
+def list_job_activities(db_path: Path, job_url: str) -> list[dict]:
+    """İlanın durum ve not değişim tarihçesini döner."""
+    if not db_path.exists():
+        return []
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    conn.row_factory = sqlite3.Row
+    cur = conn.execute(
+        "SELECT * FROM job_activities WHERE job_url = ? ORDER BY id DESC",
+        (job_url,),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def update_job_tags(db_path: Path, job_url: str, tags: list[str]) -> bool:
+    """İlana özel etiketleri (örn. remote, acil, yüksek maaş) günceller."""
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    cleaned_tags = ",".join(sorted({t.strip() for t in tags if t.strip()}))
+    cur = conn.execute("UPDATE jobs SET tags = ? WHERE job_url = ?", (cleaned_tags, job_url))
     conn.commit()
     updated = cur.rowcount > 0
     conn.close()

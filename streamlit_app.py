@@ -53,6 +53,8 @@ from app.job_search import (
     set_status,
     toggle_favorite,
     update_interview_answer,
+    list_job_activities,
+    update_job_tags,
 )
 from app.models import Profile
 from app.ui_components import (
@@ -98,6 +100,21 @@ with st.sidebar:
                 st.session_state["_pending_active_profile"] = new_profile_name.strip()
                 st.session_state.pop("profile_json_editor", None)
                 st.rerun()
+
+    with st.expander("📋 Aktif Profili Çoğalt (Clone)"):
+        clone_name = st.text_input("Yeni kopya adı", key="clone_profile_name_input")
+        if st.button("Çoğalt", key="clone_profile_btn"):
+            if not clone_name.strip():
+                st.error("Bir kopya adı girin.")
+            elif clone_name.strip() in _profiles:
+                st.error("Bu isimde bir profil zaten var.")
+            else:
+                if profile_store.clone_profile(st.session_state["active_profile"], clone_name.strip()):
+                    st.session_state["_pending_active_profile"] = clone_name.strip()
+                    st.toast(f"'{clone_name.strip()}' profili oluşturuldu!", icon="📋")
+                    st.rerun()
+                else:
+                    st.error("Profil çoğaltılamadı.")
 
     with st.expander("⚡ Hızlı Komutlar & Kısayollar", expanded=False):
         st.caption("Sık kullanılan işlemlere tek tıkla ulaşın:")
@@ -966,11 +983,12 @@ with tab_tracker:
 
         st.divider()
         st.subheader("İlan Detayları ve Durum Yönetimi")
-        fc1, fc2, fc3, fc4 = st.columns([2, 1, 1, 1])
+        fc1, fc2, fc3, fc4, fc5 = st.columns([2, 2, 1, 1, 1])
         status_filter = fc1.selectbox("Duruma göre filtrele", options=["(hepsi)"] + STATUSES)
-        favorite_only = fc2.checkbox("⭐ Yalnızca favoriler")
-        filter_remote = fc3.checkbox("🏠 Yalnızca uzaktan")
-        filter_bl = fc4.checkbox("🚫 Kara liste gizle", value=True)
+        tag_filter = fc2.text_input("🏷️ Etikete göre filtrele", placeholder="ör. remote, acil")
+        favorite_only = fc3.checkbox("⭐ Favoriler")
+        filter_remote = fc4.checkbox("🏠 Uzaktan")
+        filter_bl = fc5.checkbox("🚫 Kara liste gizle", value=True)
         rows = list_jobs(
             DB_PATH,
             limit=200,
@@ -978,6 +996,7 @@ with tab_tracker:
             favorite_only=favorite_only,
             remote_only=filter_remote,
             filter_blacklisted=filter_bl,
+            tag=tag_filter.strip() if tag_filter else None,
         )
 
         with st.expander("⚖️ Yan Yana İlan Karşılaştırma Aracı (Side-by-Side Compare)"):
@@ -1207,8 +1226,52 @@ with tab_tracker:
 
 
 
-            new_status = st.selectbox("Yeni durum", options=STATUSES)
-            notes = st.text_input("Not (opsiyonel)")
+            current_tags_str = selected_job_data.get("tags") or ""
+            current_tags = [t.strip() for t in current_tags_str.split(",") if t.strip()]
+            with st.expander("🏷️ Özel İlan Etiketleri", expanded=False):
+                st.caption("İlanı kategorize etmek için etiketler tanımlayın (ör. remote, acil, yüksek maaş):")
+                tag_c1, tag_c2 = st.columns([3, 1])
+                tags_input = tag_c1.text_input(
+                    "Etiketler (virgülle ayırın)",
+                    value=", ".join(current_tags),
+                    key=f"tags_inp_{selected_url}",
+                )
+                if tag_c2.button("Etiketleri Kaydet", key=f"save_tags_{selected_url}"):
+                    new_tag_list = [t.strip() for t in tags_input.split(",") if t.strip()]
+                    update_job_tags(DB_PATH, selected_url, new_tag_list)
+                    st.toast("Etiketler güncellendi!", icon="🏷️")
+                    st.rerun()
+
+            new_status = st.selectbox(
+                "Yeni durum",
+                options=STATUSES,
+                index=STATUSES.index(selected_job_data["status"]) if selected_job_data["status"] in STATUSES else 0,
+            )
+
+            st.markdown("###### 📝 Başvuru Notu & Hızlı Şablonlar")
+            tn1, tn2, tn3, tn4 = st.columns(4)
+            note_key = f"note_inp_{selected_url}"
+            if note_key not in st.session_state:
+                st.session_state[note_key] = selected_job_data["notes"] or ""
+
+            if tn1.button("📞 İK Görüşmesi", key=f"tpl_ik_{selected_url}"):
+                prefix = f"{st.session_state[note_key]}\n" if st.session_state[note_key] else ""
+                st.session_state[note_key] = prefix + "📞 İK ile ilk görüşme yapıldı."
+                st.rerun()
+            if tn2.button("💻 Teknik Test", key=f"tpl_tech_{selected_url}"):
+                prefix = f"{st.session_state[note_key]}\n" if st.session_state[note_key] else ""
+                st.session_state[note_key] = prefix + "💻 Teknik test/kodlama ödevi iletildi."
+                st.rerun()
+            if tn3.button("🤝 İkinci Mülakat", key=f"tpl_int2_{selected_url}"):
+                prefix = f"{st.session_state[note_key]}\n" if st.session_state[note_key] else ""
+                st.session_state[note_key] = prefix + "🤝 Ekip lideri / yönetici mülakatı tamamlandı."
+                st.rerun()
+            if tn4.button("💰 Teklif Aşaması", key=f"tpl_offer_{selected_url}"):
+                prefix = f"{st.session_state[note_key]}\n" if st.session_state[note_key] else ""
+                st.session_state[note_key] = prefix + "💰 Teklif değerlendirme aşamasında."
+                st.rerun()
+
+            notes = st.text_area("Not Detayı", value=st.session_state[note_key], key=f"notes_ta_{selected_url}", height=80)
 
             if new_status == "mülakat" or (selected_job_data and selected_job_data["status"] == "mülakat"):
                 with st.expander("📅 Mülakatı Takvime Ekle (.ics İndir)", expanded=True):
@@ -1246,11 +1309,25 @@ with tab_tracker:
                             set_interview_datetime(DB_PATH, selected_url, dt_start.isoformat())
                             st.success("Mülakat tarihi kaydedildi. 'Bildirimler' bölümünde hatırlatılacak.")
 
-            if st.button("Güncelle"):
+            if st.button("Güncelle", type="primary"):
                 job_url = options[selected_label]
                 set_status(DB_PATH, job_url, new_status, notes or None)
+                st.session_state[note_key] = notes or ""
+                st.toast("İlan durumu ve notlar güncellendi!", icon="✅")
                 st.success("Güncellendi.")
                 st.rerun()
+
+            with st.expander("🕒 Başvuru Aktivite Geçmişi & Zaman Çizelgesi (Audit Timeline)", expanded=False):
+                acts = list_job_activities(DB_PATH, selected_url)
+                if not acts:
+                    st.caption("Henüz kayıtlı durum veya not değişikliği geçmişi bulunmuyor.")
+                else:
+                    for act in acts:
+                        time_str = act["created_at"][:19].replace("T", " ")
+                        old_s = (act["old_status"] or "yeni").capitalize()
+                        new_s = act["new_status"].capitalize()
+                        note_str = f" — *\"{act['note']}\"*" if act.get("note") else ""
+                        st.markdown(f"- ⏱️ **{time_str}** | `{old_s}` ➔ **`{new_s}`**{note_str}")
 
         st.divider()
         with st.expander("📚 Kişisel Mülakat Soru Bankası"):
