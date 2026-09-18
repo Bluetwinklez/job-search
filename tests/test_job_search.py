@@ -28,12 +28,14 @@ from app.job_search import (
     list_jobs,
     list_saved_searches,
     list_search_history,
+    list_upcoming_interviews,
     list_watched_companies,
     log_search,
     remove_watched_company,
     save_interview_questions,
     save_jobs,
     save_search,
+    set_interview_datetime,
     set_status,
     toggle_favorite,
     update_interview_answer,
@@ -299,6 +301,36 @@ class TestJobSearch(unittest.TestCase):
         deleted = delete_interview_question(self.db_path, bank[0]["id"])
         self.assertTrue(deleted)
         self.assertEqual(len(list_interview_questions(self.db_path)), 0)
+
+    def test_upcoming_interviews(self):
+        from datetime import datetime, timedelta
+
+        df = create_df(
+            [
+                {
+                    "job_url": "https://example.com/job1",
+                    "site": "linkedin",
+                    "title": "Eczane Teknisyeni",
+                    "company": "Merkez Eczane",
+                },
+                {
+                    "job_url": "https://example.com/job2",
+                    "site": "linkedin",
+                    "title": "Depo Sorumlusu",
+                    "company": "İlaç Deposu",
+                },
+            ]
+        )
+        save_jobs(df, self.db_path)
+
+        soon = (datetime.now() + timedelta(days=1)).isoformat()
+        far = (datetime.now() + timedelta(days=30)).isoformat()
+        set_interview_datetime(self.db_path, "https://example.com/job1", soon)
+        set_interview_datetime(self.db_path, "https://example.com/job2", far)
+
+        upcoming = list_upcoming_interviews(self.db_path, within_days=3)
+        self.assertEqual(len(upcoming), 1)
+        self.assertEqual(upcoming[0]["job_url"], "https://example.com/job1")
 
 
 if __name__ == "__main__":

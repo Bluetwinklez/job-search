@@ -34,6 +34,7 @@ Oluştur**, **İş Ara**, **Başvurularım**, **Ön Yazı**.
 | İngilizce CV üretimi | `app/cv_translate.py` | Evet (Claude API) |
 | Kişisel mülakat soru bankası (kaydet, cevap yaz, filtrele) | `app/job_search.py` | Hayır |
 | Karanlık mod & mobil uyumlu arayüz | `app/ui_theme.py`, `.streamlit/config.toml` | Hayır |
+| Hatırlatıcılar (yaklaşan mülakat, takip zamanı) & Telegram/e-posta bildirimi | `app/notifications.py` | Hayır (Telegram/e-posta kendi hesabın) |
 | Web arayüzü (hepsini birleştirir) | `streamlit_app.py` | — |
 | Windows tek tıkla masaüstü başlatıcı | `baslat.bat` | — |
 
@@ -253,6 +254,28 @@ LinkedIn profilinin PDF olarak dışa aktarılan hali (LinkedIn > Profili
 Düzenle > Daha Fazla > Profili PDF Olarak Kaydet) veya profil metninin
 kopyala-yapıştır hâli doğrudan yüklenip aynı ATS-dostu yeniden yazma
 işleminden geçirilebilir.
+
+## 8. Hatırlatıcılar & Bildirimler
+
+`app/notifications.py`, "Başvurularım" sekmesindeki takip/mülakat
+hatırlatıcılarından bir günlük özet (digest) üretir. Bir mülakat
+tarihini "🔔 Hatırlatıcı Olarak Kaydet" ile kaydedersen, önümüzdeki 3
+gün içindeyse "🗓️ Yaklaşan Mülakatlar" panelinde otomatik görünür.
+
+Bu uygulama sürekli çalışan bir arka plan sunucusu **değildir** (yerel
+Streamlit süreci); bu yüzden bildirimler otomatik gönderilmez —
+"🔔 Bildirim Ayarları" bölümünden kendi Telegram botun veya e-posta
+(SMTP) bilgilerinle manuel tetiklenir. Otomatik/günlük tekrar
+istiyorsan bu komutu kendi işletim sisteminin zamanlayıcısına (cron,
+Görev Zamanlayıcı) bağlayabilirsin:
+
+```bash
+python -m app.notifications --db data/jobs.db \
+  --telegram-token "$TELEGRAM_BOT_TOKEN" --telegram-chat-id "$TELEGRAM_CHAT_ID"
+```
+
+Bot token, chat id, SMTP sunucu adresi/kullanıcı adı/şifre **sana
+aittir** — uygulama bunları kaydetmez veya varsayılan bir değer üretmez.
 
 ## Karanlık Mod & Mobil Kullanım
 
