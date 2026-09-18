@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 
 from app.models import Experience, Profile, SkillGroup
 
-DEFAULT_MODEL = "claude-opus-5"
+DEFAULT_MODEL = "claude-3-7-sonnet-20250219"
 
 
 class TailoredExperience(BaseModel):
@@ -91,12 +91,28 @@ def _build_prompt(profile: Profile, job_description: str) -> str:
     )
 
 
-def tailor_profile(profile: Profile, job_description: str, model: str = DEFAULT_MODEL) -> tuple[Profile, TailoringResult]:
+def tailor_profile(
+    profile: Profile, job_description: str, model: str = DEFAULT_MODEL, api_key: str | None = None
+) -> tuple[Profile, TailoringResult]:
     """Profili ilana göre uyarlar; (uyarlanmış profil, ham model çıktısı) döner."""
+    import os
+
+    key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        raise ValueError(
+            "ANTHROPIC_API_KEY ortam değişkeni tanımlı değil. Lütfen geçerli bir Anthropic API anahtarı sağlayın."
+        )
+
     import anthropic
 
-    client = anthropic.Anthropic()
-    response = client.messages.parse(
+    client = anthropic.Anthropic(api_key=key)
+    parse_fn = getattr(client.beta.messages, "parse", None) if hasattr(client, "beta") else None
+    if parse_fn is None:
+        parse_fn = getattr(client.messages, "parse", None)
+    if parse_fn is None:
+        raise RuntimeError("Yüklü anthropic kütüphanesi structured output (.parse) desteklemiyor. Lütfen güncelleyin.")
+
+    response = parse_fn(
         model=model,
         max_tokens=4096,
         messages=[{"role": "user", "content": _build_prompt(profile, job_description)}],
@@ -104,6 +120,7 @@ def tailor_profile(profile: Profile, job_description: str, model: str = DEFAULT_
     )
     result = response.parsed_output
     return _apply_tailoring(profile, result), result
+
 
 
 def _reorder(items: list, order: list[int]) -> list:
