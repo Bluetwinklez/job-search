@@ -113,23 +113,74 @@ def generate_cover_letter(
     return "\n".join(p for p in paragraphs if p is not None)
 
 
-def render_letter_pdf(letter_text: str):
-    """Düz metin ön yazıyı, CV ile aynı yazı tipini kullanan bir PDF'e dönüştürür."""
+def render_letter_pdf(
+    letter_text: str,
+    profile: Profile | None = None,
+    theme: str = "classic_navy",
+):
+    """Düz metin ön yazıyı, kurumsal antet ve CV temasıyla uyumlu profesyonel bir PDF'e dönüştürür."""
+    from datetime import date
     from fpdf import FPDF
+    from app.cv_generator import FONT_FAMILY, FONTS_DIR, THEMES
 
-    from app.cv_generator import FONT_FAMILY, FONTS_DIR
+    theme_data = THEMES.get(theme, THEMES["classic_navy"])
+    primary_color = theme_data.get("accent", (28, 56, 111))
 
     pdf = FPDF(format="A4")
     pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_font(FONT_FAMILY, "", str(FONTS_DIR / "DejaVuSans.ttf"))
+    pdf.add_font(FONT_FAMILY, "B", str(FONTS_DIR / "DejaVuSans-Bold.ttf"))
     pdf.add_page()
     pdf.set_margins(20, 20, 20)
-    pdf.set_font(FONT_FAMILY, "", 11)
+
+    # Kurumsal Antet (Eğer profile verilmişse)
+    if profile:
+        # İsim
+        pdf.set_font(FONT_FAMILY, "B", 18)
+        pdf.set_text_color(*primary_color)
+        pdf.cell(0, 8, profile.contact.full_name, new_x="LMARGIN", new_y="NEXT")
+
+        # Ünvan
+        pdf.set_font(FONT_FAMILY, "", 11)
+        pdf.set_text_color(100, 100, 100)
+        pdf.cell(0, 5, profile.contact.title, new_x="LMARGIN", new_y="NEXT")
+
+        # İletişim satırı
+        contact_parts = [profile.contact.email]
+        if profile.contact.phone:
+            contact_parts.append(profile.contact.phone)
+        if profile.contact.location:
+            contact_parts.append(profile.contact.location)
+        if profile.contact.linkedin:
+            contact_parts.append(profile.contact.linkedin)
+
+        pdf.set_font(FONT_FAMILY, "", 9)
+        pdf.set_text_color(110, 110, 110)
+        pdf.cell(0, 5, "  •  ".join(contact_parts), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(3)
+
+        # Kurumsal renkli ayırıcı çizgi
+        pdf.set_draw_color(*primary_color)
+        pdf.set_line_width(0.8)
+        pdf.line(20, pdf.get_y(), 190, pdf.get_y())
+        pdf.ln(6)
+
+        # Tarih
+        pdf.set_font(FONT_FAMILY, "", 10)
+        pdf.set_text_color(120, 120, 120)
+        today_str = date.today().strftime("%d.%m.%Y")
+        pdf.cell(0, 5, f"Tarih: {today_str}", align="R", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
+
+    # Metin Gövdesi
+    pdf.set_font(FONT_FAMILY, "", 10.5)
+    pdf.set_text_color(40, 40, 40)
     for line in letter_text.split("\n"):
         if line.strip() == "":
-            pdf.ln(4)
+            pdf.ln(3.5)
         else:
-            pdf.multi_cell(0, 6, line, new_x="LMARGIN", new_y="NEXT")
+            pdf.multi_cell(0, 5.5, line, new_x="LMARGIN", new_y="NEXT")
+
     return pdf
 
 
