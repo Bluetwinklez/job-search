@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 from pydantic import ValidationError
 
-from app.cover_letter import generate_cover_letter
+from app.cover_letter import generate_cover_letter, render_letter_pdf
 from app.cv_generator import build_cv
 from app.cv_rewrite import rewrite_cv
 from app.cv_tailor import tailor_profile
@@ -284,4 +284,9 @@ with tab_letter:
                 st.session_state["cover_letter_text"] = letter
         if "cover_letter_text" in st.session_state:
             edited = st.text_area("Taslak (düzenlenebilir)", value=st.session_state["cover_letter_text"], height=300)
-            st.download_button("Metni indir (.txt)", data=edited, file_name="on_yazi.txt", mime="text/plain")
+            dl_col1, dl_col2 = st.columns(2)
+            dl_col1.download_button("Metni indir (.txt)", data=edited, file_name="on_yazi.txt", mime="text/plain")
+            pdf_bytes = bytes(render_letter_pdf(edited).output())
+            dl_col2.download_button(
+                "PDF olarak indir", data=pdf_bytes, file_name="on_yazi.pdf", mime="application/pdf"
+            )
