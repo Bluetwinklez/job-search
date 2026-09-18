@@ -16,7 +16,7 @@ from pydantic import ValidationError
 
 from app import profile_store
 from app.cover_letter import generate_cover_letter, render_letter_pdf
-from app.cv_generator import build_cv
+from app.cv_generator import THEMES, build_cv
 from app.cv_rewrite import rewrite_cv
 from app.cv_tailor import tailor_profile
 from app.job_search import (
@@ -203,12 +203,22 @@ with tab_cv:
     if profile is None:
         st.warning("Önce 'Profil' sekmesinden geçerli bir profil kaydet.")
     else:
-        st.write(f"**{profile.contact.full_name}** — {profile.contact.title}")
+        col_cv1, col_cv2 = st.columns([2, 1])
+        with col_cv1:
+            st.write(f"**{profile.contact.full_name}** — {profile.contact.title}")
+        with col_cv2:
+            selected_theme = st.selectbox(
+                "CV Tasarım Teması",
+                options=list(THEMES.keys()),
+                format_func=lambda k: THEMES[k]["name"],
+                key="cv_theme_select",
+            )
+
         if st.button("PDF Oluştur", type="primary"):
-            pdf = build_cv(profile)
+            pdf = build_cv(profile, theme=selected_theme)
             pdf_bytes = bytes(pdf.output())
             st.session_state["cv_pdf_bytes"] = pdf_bytes
-            st.success("CV oluşturuldu.")
+            st.success(f"CV oluşturuldu ({THEMES[selected_theme]['name']}).")
         if "cv_pdf_bytes" in st.session_state:
             st.download_button(
                 "CV'yi indir (PDF)",
