@@ -889,6 +889,32 @@ with tab_tracker:
                             st.text_input("Konu", value=sub_ty, key=f"ty_sub_{selected_url}")
                             st.text_area("E-posta Gövdesi", value=body_ty, height=200, key=f"ty_body_{selected_url}")
 
+                    with st.expander("💰 Maaş Beklentisi & Pazarlık Rehberi"):
+                        from app.salary_estimator import estimate_salary
+
+                        sal_col1, sal_col2, sal_col3 = st.columns(3)
+                        role_val = sal_col1.text_input("Rol / Pozisyon", value=selected_job_data["title"] or "Yazılım Geliştirici", key=f"sal_r_{selected_url}")
+                        exp_val = sal_col2.selectbox("Deneyim Seviyesi", ["junior", "mid", "senior", "lead"], index=1, format_func=lambda x: {"junior": "Junior (0-2 Yıl)", "mid": "Mid-Level (2-5 Yıl)", "senior": "Senior (5-8 Yıl)", "lead": "Lead / Staff (8+ Yıl)"}[x], key=f"sal_e_{selected_url}")
+                        curr_val = sal_col3.selectbox("Para Birimi", ["TRY", "USD", "EUR"], index=0, key=f"sal_c_{selected_url}")
+
+                        sal_res = estimate_salary(role_val, experience_level=exp_val, location=selected_job_data["location"] or "istanbul", currency=curr_val)
+
+                        m_c1, m_c2, m_c3 = st.columns(3)
+                        m_c1.metric("Tahmini Minimum", f"{sal_res.min_monthly:,.0f} {sal_res.currency} / ay")
+                        m_c2.metric("Piyasa Ortancası", f"{sal_res.median_monthly:,.0f} {sal_res.currency} / ay")
+                        m_c3.metric("Tahmini Üst Bant", f"{sal_res.max_monthly:,.0f} {sal_res.currency} / ay")
+
+                        st.caption(f"Yıllık eşdeğer: {sal_res.min_annual:,.0f} - {sal_res.max_annual:,.0f} {sal_res.currency}")
+                        st.info(sal_res.market_insights)
+
+                        st.markdown("**🗣️ Mülakatta Kullanabileceğiniz Pazarlık Cümleleri:**")
+                        for tp in sal_res.talking_points:
+                            st.write(f"- *\"{tp}\"*")
+
+                        st.markdown("**💡 Pazarlık İpuçları & Stratejiler:**")
+                        for tip in sal_res.negotiation_tips:
+                            st.caption(f"• {tip}")
+
 
 
             new_status = st.selectbox("Yeni durum", options=STATUSES)
