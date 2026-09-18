@@ -1039,9 +1039,18 @@ with tab_letter:
                 st.session_state["cover_letter_text"] = letter
         if "cover_letter_text" in st.session_state:
             edited = st.text_area("Taslak (düzenlenebilir)", value=st.session_state["cover_letter_text"], height=300)
-            dl_col1, dl_col2 = st.columns(2)
-            dl_col1.download_button("Metni indir (.txt)", data=edited, file_name="on_yazi.txt", mime="text/plain")
-            pdf_bytes = bytes(render_letter_pdf(edited).output())
-            dl_col2.download_button(
-                "PDF olarak indir", data=pdf_bytes, file_name="on_yazi.pdf", mime="application/pdf"
+            lt_col1, lt_col2, lt_col3 = st.columns([1, 1, 1])
+            lt_col1.download_button("Metni indir (.txt)", data=edited, file_name="on_yazi.txt", mime="text/plain")
+            letter_theme = lt_col2.selectbox(
+                "Kurumsal Antet Teması",
+                options=list(THEMES.keys()),
+                format_func=lambda k: THEMES[k]["name"],
+                key="letter_theme_choice",
+            )
+            pdf_bytes = bytes(render_letter_pdf(edited, profile=profile, theme=letter_theme).output())
+            lt_col3.download_button(
+                "Kurumsal PDF olarak indir",
+                data=pdf_bytes,
+                file_name=f"{profile.contact.full_name.replace(' ', '_')}_On_Yazi.pdf",
+                mime="application/pdf",
             )
