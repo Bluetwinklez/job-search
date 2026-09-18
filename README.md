@@ -211,8 +211,16 @@ Web arayüzünde **Profil** sekmesindeki "Var olan bir CV'yi yükle ve
 yeniden yaz (Claude ile)" bölümünden `.pdf`/`.txt` yükleyebilir ya da
 metni doğrudan yapıştırabilirsin; sonuç profil düzenleyicisine
 otomatik doldurulur, incelendikten sonra "Kaydet"e basman yeterli.
+## Testleri Çalıştırma
+
+Tüm birim testleri (Türkçe eşleşme, CV/Ön yazı PDF üretimi, SQLite işlemleri ve Pydantic validasyonları) tek komutla çalıştırılabilir:
+
+```bash
+python -m unittest discover -s tests
+```
 
 ## Gizlilik
+
 
 `data/profile.json` ve `data/jobs.db` `.gitignore`'da tanımlıdır ve
 repoya commit edilmez — kişisel bilgilerin (iletişim bilgileri, taranan
