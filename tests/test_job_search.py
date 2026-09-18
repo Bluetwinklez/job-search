@@ -19,20 +19,24 @@ except ImportError:
 from app.job_search import (
     _match_score,
     add_watched_company,
+    delete_interview_question,
     delete_saved_search,
     get_job,
     get_matched_skills,
     get_stats,
+    list_interview_questions,
     list_jobs,
     list_saved_searches,
     list_search_history,
     list_watched_companies,
     log_search,
     remove_watched_company,
+    save_interview_questions,
     save_jobs,
     save_search,
     set_status,
     toggle_favorite,
+    update_interview_answer,
 )
 from app.models import ContactInfo, Experience, Profile, SkillGroup
 
@@ -255,6 +259,46 @@ class TestJobSearch(unittest.TestCase):
         # filter_blacklisted=False iken ikisi de gelmeli
         all_jobs = list_jobs(self.db_path, filter_blacklisted=False)
         self.assertEqual(len(all_jobs), 2)
+
+    def test_interview_question_bank(self):
+        df = create_df(
+            [
+                {
+                    "job_url": "https://example.com/job1",
+                    "site": "linkedin",
+                    "title": "Eczane Teknisyeni",
+                    "company": "Merkez Eczane",
+                }
+            ]
+        )
+        save_jobs(df, self.db_path)
+
+        questions = [
+            {
+                "category": "Teknik/Rol Odaklı",
+                "question": "Medula sistemiyle ilgili deneyiminiz nedir?",
+                "rationale": "Teknik yeterliliği ölçmek için.",
+                "answer_tip": "Şifa Eczanesi'ndeki deneyiminizi anlatın.",
+            }
+        ]
+        save_interview_questions(self.db_path, "https://example.com/job1", questions)
+
+        bank = list_interview_questions(self.db_path)
+        self.assertEqual(len(bank), 1)
+        self.assertEqual(bank[0]["question"], "Medula sistemiyle ilgili deneyiminiz nedir?")
+        self.assertIsNone(bank[0]["personal_answer"])
+
+        filtered = list_interview_questions(self.db_path, job_url="https://example.com/job1")
+        self.assertEqual(len(filtered), 1)
+
+        updated = update_interview_answer(self.db_path, bank[0]["id"], "3 yıl Medula deneyimim var.")
+        self.assertTrue(updated)
+        refreshed = list_interview_questions(self.db_path)
+        self.assertEqual(refreshed[0]["personal_answer"], "3 yıl Medula deneyimim var.")
+
+        deleted = delete_interview_question(self.db_path, bank[0]["id"])
+        self.assertTrue(deleted)
+        self.assertEqual(len(list_interview_questions(self.db_path)), 0)
 
 
 if __name__ == "__main__":
