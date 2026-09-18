@@ -448,6 +448,40 @@ with tab_cv:
                     st.caption(f"💡 {r}")
 
 
+        with st.expander("🌐 İngilizce CV Oluştur"):
+            st.caption(
+                "Profildeki gerçek bilgileri koruyarak (yeni bilgi uydurmadan) CV'yi "
+                "İngilizceye çevirip İngilizce başlıklarla PDF üretir. Çalışması için "
+                "ortamda ANTHROPIC_API_KEY tanımlı olmalı."
+            )
+            en_theme = st.selectbox(
+                "Tema",
+                options=list(THEMES.keys()),
+                format_func=lambda k: THEMES[k]["name"],
+                key="cv_en_theme_select",
+            )
+            if st.button("İngilizce CV Oluştur", key="generate_en_cv_btn"):
+                try:
+                    from app.cv_translate import translate_profile_to_english
+
+                    with st.spinner("Profil İngilizceye çevriliyor..."):
+                        translated_profile = translate_profile_to_english(
+                            profile, model=model_choice, api_key=api_key_input or None
+                        )
+                    en_pdf = build_cv(translated_profile, theme=en_theme, language="en")
+                    st.session_state["cv_en_pdf_bytes"] = bytes(en_pdf.output())
+                    st.success("İngilizce CV oluşturuldu.")
+                except Exception as exc:
+                    st.error(f"İngilizce CV oluşturulamadı: {exc}")
+            if "cv_en_pdf_bytes" in st.session_state:
+                st.download_button(
+                    "Download English CV (PDF)",
+                    data=st.session_state["cv_en_pdf_bytes"],
+                    file_name=f"{profile.contact.full_name.replace(' ', '_')}_CV_EN.pdf",
+                    mime="application/pdf",
+                    key="dl_en_cv_btn",
+                )
+
         with st.expander("İlana özel uyarla (Claude ile)"):
             st.caption(
                 "Bir ilan açıklaması yapıştır; Claude yeni bir deneyim/yetenek uydurmaz, "
