@@ -258,6 +258,55 @@ with tab_tracker:
         for i, s in enumerate(STATUSES, start=1):
             cols[i].metric(s.capitalize(), stats["by_status"].get(s, 0))
 
+        view_mode = st.radio("Görünüm Seçeneği", ["📊 Kanban Panosu", "📋 Tablo Listesi"], horizontal=True)
+
+        if view_mode == "📊 Kanban Panosu":
+            kanban_cols = st.columns(len(STATUSES))
+            all_tracker_jobs = list_jobs(DB_PATH, limit=300)
+            jobs_by_status = {s: [r for r in all_tracker_jobs if r["status"] == s] for s in STATUSES}
+
+            status_emojis = {
+                "yeni": "🆕",
+                "başvuruldu": "📨",
+                "mülakat": "💼",
+                "teklif": "🎉",
+                "reddedildi": "❌",
+            }
+
+            for col_idx, status_name in enumerate(STATUSES):
+                with kanban_cols[col_idx]:
+                    st.markdown(f"#### {status_emojis.get(status_name, '')} {status_name.capitalize()} ({len(jobs_by_status[status_name])})")
+                    for job_item in jobs_by_status[status_name]:
+                        with st.container(border=True):
+                            score_text = f" · 🎯 %{int(job_item['match_score'] * 100)}" if job_item["match_score"] is not None else ""
+                            st.markdown(f"**{job_item['title']}**")
+                            st.caption(f"{job_item['company']} ({job_item['site'] or ''}){score_text}")
+                            if job_item["notes"]:
+                                st.caption(f"📝 {job_item['notes']}")
+
+                            if status_name == "yeni":
+                                if st.button("Başvur ➡️", key=f"kb_app_{job_item['job_url']}"):
+                                    set_status(DB_PATH, job_item["job_url"], "başvuruldu")
+                                    st.rerun()
+                            elif status_name == "başvuruldu":
+                                c_k1, c_k2 = st.columns(2)
+                                if c_k1.button("Mülakat 💼", key=f"kb_int_{job_item['job_url']}"):
+                                    set_status(DB_PATH, job_item["job_url"], "mülakat")
+                                    st.rerun()
+                                if c_k2.button("Red ❌", key=f"kb_rej_{job_item['job_url']}"):
+                                    set_status(DB_PATH, job_item["job_url"], "reddedildi")
+                                    st.rerun()
+                            elif status_name == "mülakat":
+                                c_k1, c_k2 = st.columns(2)
+                                if c_k1.button("Teklif 🎉", key=f"kb_off_{job_item['job_url']}"):
+                                    set_status(DB_PATH, job_item["job_url"], "teklif")
+                                    st.rerun()
+                                if c_k2.button("Red ❌", key=f"kb_rej2_{job_item['job_url']}"):
+                                    set_status(DB_PATH, job_item["job_url"], "reddedildi")
+                                    st.rerun()
+
+        st.divider()
+        st.subheader("İlan Detayları ve Durum Yönetimi")
         status_filter = st.selectbox("Duruma göre filtrele", options=["(hepsi)"] + STATUSES)
         rows = list_jobs(
             DB_PATH,
@@ -282,6 +331,7 @@ with tab_tracker:
                 file_name="basvurularim.csv",
                 mime="text/csv",
             )
+
 
             st.markdown("**Durum güncelle & Detay Gör**")
             options = {f"{r['title']} — {r['company']} ({r['job_url']})": r["job_url"] for r in rows}
