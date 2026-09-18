@@ -672,6 +672,19 @@ with tab_tracker:
                 else:
                     st.caption("Veri yok.")
 
+        from app.outreach import check_follow_up_needed
+        pending_fu = check_follow_up_needed(DB_PATH, days_threshold=7)
+        if pending_fu:
+            with st.expander(f"⏳ Takip Zamanı Gelmiş Başvurular ({len(pending_fu)})", expanded=True):
+                st.warning(f"**{len(pending_fu)} adet** başvurunuzun üzerinden 7 günden fazla zaman geçti. Nazik bir durum sorgulama e-postası atabilirsiniz.")
+                for fu in pending_fu:
+                    fu_c1, fu_c2, fu_c3 = st.columns([3, 1, 1])
+                    fu_c1.write(f"💼 **{fu['title']}** @ {fu['company']} ({fu['days_elapsed']} gün önce)")
+                    fu_c2.caption(f"Tarih: {fu['applied_at']}")
+                    if fu_c3.button("Detaya Git", key=f"btn_goto_fu_{fu['job_url']}"):
+                        st.session_state["_selected_job_for_tracker"] = fu["job_url"]
+                        st.rerun()
+
         view_mode = st.radio("Görünüm Seçeneği", ["📊 Kanban Panosu", "📋 Tablo Listesi"], horizontal=True)
 
         if view_mode == "📊 Kanban Panosu":
