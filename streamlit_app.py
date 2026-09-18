@@ -40,6 +40,7 @@ from app.job_search import (
     list_jobs,
     list_saved_searches,
     list_search_history,
+    list_upcoming_interviews,
     list_watched_companies,
     log_search,
     remove_from_blacklist,
@@ -48,6 +49,7 @@ from app.job_search import (
     save_jobs,
     save_search,
     search_jobs,
+    set_interview_datetime,
     set_status,
     toggle_favorite,
     update_interview_answer,
@@ -728,6 +730,59 @@ with tab_tracker:
                         st.session_state["_selected_job_for_tracker"] = fu["job_url"]
                         st.rerun()
 
+        upcoming_interviews = list_upcoming_interviews(DB_PATH, within_days=3) if DB_PATH.exists() else []
+        if upcoming_interviews:
+            with st.expander(f"🗓️ Yaklaşan Mülakatlar ({len(upcoming_interviews)})", expanded=True):
+                st.info("Önümüzdeki 3 gün içinde planlı mülakatların:")
+                for iv in upcoming_interviews:
+                    st.write(f"📌 **{iv['title']}** @ {iv['company']} — {iv['interview_at']}")
+
+        with st.expander("🔔 Bildirim Ayarları (Telegram / E-posta)"):
+            st.caption(
+                "Yukarıdaki hatırlatıcıların günlük özetini kendi Telegram botun veya e-posta "
+                "hesabın üzerinden gönderebilirsin. Bu uygulama arka planda sürekli çalışmadığı "
+                "için gönderim manueldir; otomatik/günlük tekrar için `python -m app.notifications "
+                "--telegram-token ... --telegram-chat-id ...` komutunu kendi işletim sisteminin "
+                "zamanlayıcısına (cron, Görev Zamanlayıcı) bağlayabilirsin. Bot token/SMTP bilgileri "
+                "sana aittir; uygulama bunları saklamaz, yalnızca bu oturumda kullanır."
+            )
+            from app.notifications import build_daily_digest, send_email_notification, send_telegram_message
+
+            digest_preview = build_daily_digest(DB_PATH) if DB_PATH.exists() else "Henüz veri yok."
+            st.text_area("Günlük Özet Önizleme", value=digest_preview, height=150, disabled=True)
+
+            notif_tab_tg, notif_tab_email = st.tabs(["📱 Telegram", "📧 E-posta"])
+            with notif_tab_tg:
+                tg_token = st.text_input("Telegram Bot Token", type="password", key="notif_tg_token")
+                tg_chat_id = st.text_input("Telegram Chat ID", key="notif_tg_chat_id")
+                if st.button("Telegram'a Gönder", key="notif_send_tg"):
+                    if not tg_token or not tg_chat_id:
+                        st.error("Bot token ve chat id gir.")
+                    else:
+                        try:
+                            send_telegram_message(tg_token, tg_chat_id, digest_preview)
+                            st.success("Telegram bildirimi gönderildi.")
+                        except Exception as exc:
+                            st.error(f"Gönderim başarısız: {exc}")
+            with notif_tab_email:
+                em_host = st.text_input("SMTP Sunucu", placeholder="smtp.gmail.com", key="notif_smtp_host")
+                em_port = st.number_input("SMTP Port", value=587, key="notif_smtp_port")
+                em_user = st.text_input("SMTP Kullanıcı Adı / E-posta", key="notif_smtp_user")
+                em_pass = st.text_input("SMTP Şifre / Uygulama Şifresi", type="password", key="notif_smtp_pass")
+                em_to = st.text_input("Alıcı E-posta", key="notif_email_to")
+                if st.button("E-posta Gönder", key="notif_send_email"):
+                    if not all([em_host, em_user, em_pass, em_to]):
+                        st.error("Tüm SMTP alanlarını doldur.")
+                    else:
+                        try:
+                            send_email_notification(
+                                em_host, int(em_port), em_user, em_pass, em_to,
+                                subject="İş Arama Asistanı — Günlük Özet", body=digest_preview,
+                            )
+                            st.success("E-posta bildirimi gönderildi.")
+                        except Exception as exc:
+                            st.error(f"Gönderim başarısız: {exc}")
+
         view_mode = st.radio("Görünüm Seçeneği", ["📊 Kanban Panosu", "📋 Tablo Listesi"], horizontal=True)
 
         if view_mode == "📊 Kanban Panosu":
@@ -1034,12 +1089,16 @@ with tab_tracker:
                             location_or_url=meeting_link or None,
                             notes=notes or selected_job_data["notes"],
                         )
-                        st.download_button(
+                        ics_col1, ics_col2 = st.columns([1, 1])
+                        ics_col1.download_button(
                             "📅 Takvim Dosyasını İndir (.ics)",
                             data=ics_content,
                             file_name=f"mulakat_{(selected_job_data['company'] or 'etkinlik').replace(' ', '_')}.ics",
                             mime="text/calendar",
                         )
+                        if ics_col2.button("🔔 Hatırlatıcı Olarak Kaydet", key=f"save_interview_{selected_url}"):
+                            set_interview_datetime(DB_PATH, selected_url, dt_start.isoformat())
+                            st.success("Mülakat tarihi kaydedildi. 'Bildirimler' bölümünde hatırlatılacak.")
 
             if st.button("Güncelle"):
                 job_url = options[selected_label]
