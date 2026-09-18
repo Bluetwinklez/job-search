@@ -200,5 +200,63 @@ class TestJobSearch(unittest.TestCase):
         self.assertEqual(len(list_watched_companies(self.db_path)), 0)
 
 
+    def test_blacklist_operations(self):
+        from app.job_search import (
+            add_to_blacklist,
+            get_blacklist,
+            remove_from_blacklist,
+            is_blacklisted,
+        )
+
+        # Ekleme
+        self.assertTrue(add_to_blacklist(self.db_path, "İstenmeyen Şirket", kind="company"))
+        self.assertTrue(add_to_blacklist(self.db_path, "Stajyer", kind="keyword"))
+        # Tekrar ekleme False döner
+        self.assertFalse(add_to_blacklist(self.db_path, "İstenmeyen Şirket", kind="company"))
+
+        items = get_blacklist(self.db_path)
+        self.assertEqual(len(items), 2)
+
+        # Kontrol
+        self.assertTrue(is_blacklisted("İstenmeyen Şirket A.Ş.", "Geliştirici", items))
+        self.assertTrue(is_blacklisted("Normal Şirket", "Yazılım Stajyeri", items))
+        self.assertFalse(is_blacklisted("İyi Şirket", "Kıdemli Geliştirici", items))
+
+        # Silme
+        self.assertTrue(remove_from_blacklist(self.db_path, "İstenmeyen Şirket"))
+        self.assertEqual(len(get_blacklist(self.db_path)), 1)
+
+    def test_list_jobs_with_blacklist_filter(self):
+        from app.job_search import add_to_blacklist
+
+        df = create_df(
+            [
+                {
+                    "job_url": "https://example.com/clean1",
+                    "title": "Backend Geliştirici",
+                    "company": "Harika Teknoloji",
+                },
+                {
+                    "job_url": "https://example.com/spam1",
+                    "title": "Backend Geliştirici",
+                    "company": "Kara Liste Şirketi",
+                },
+            ]
+        )
+        save_jobs(df, self.db_path)
+        add_to_blacklist(self.db_path, "Kara Liste Şirketi", kind="company")
+
+        # filter_blacklisted=True iken filtrelenmeli
+        clean_jobs = list_jobs(self.db_path, filter_blacklisted=True)
+        companies = [j["company"] for j in clean_jobs]
+        self.assertNotIn("Kara Liste Şirketi", companies)
+        self.assertIn("Harika Teknoloji", companies)
+
+        # filter_blacklisted=False iken ikisi de gelmeli
+        all_jobs = list_jobs(self.db_path, filter_blacklisted=False)
+        self.assertEqual(len(all_jobs), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
+
