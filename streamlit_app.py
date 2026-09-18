@@ -217,6 +217,36 @@ with tab_cv:
                 mime="application/pdf",
             )
 
+        with st.expander("🎯 ATS Uyumluluk Skoru & Denetim Raporu", expanded=True):
+            from app.ats_scorer import score_profile
+
+            report = score_profile(profile)
+
+            c_sc1, c_sc2 = st.columns([1, 2])
+            with c_sc1:
+                st.metric("ATS Skoru", f"{report.total_score} / 100")
+                st.progress(report.total_score / 100.0)
+            with c_sc2:
+                b = report.breakdown
+                st.markdown(
+                    f"- İletişim: **{b.contact_score}/15**\n"
+                    f"- Özet: **{b.summary_score}/15**\n"
+                    f"- Deneyim: **{b.experience_score}/30** (Sayısal Metrik: **{report.metric_mentions_count}**)\n"
+                    f"- Yetenekler: **{b.skills_score}/25**\n"
+                    f"- Eğitim: **{b.education_score}/15**"
+                )
+
+            if report.strengths:
+                st.markdown("**Güçlü Yönler:**")
+                for s in report.strengths:
+                    st.caption(f"✅ {s}")
+
+            if report.recommendations:
+                st.markdown("**ATS Tavsiyeleri:**")
+                for r in report.recommendations:
+                    st.caption(f"💡 {r}")
+
+
         with st.expander("İlana özel uyarla (Claude ile)"):
             st.caption(
                 "Bir ilan açıklaması yapıştır; Claude yeni bir deneyim/yetenek uydurmaz, "
