@@ -50,6 +50,9 @@ DB_PATH = Path("data/jobs.db")
 
 st.set_page_config(page_title="İş Arama Asistanı", page_icon="📋", layout="wide")
 
+from app.ui_theme import apply_theme
+apply_theme()
+
 profile_store.ensure_migrated()
 
 with st.sidebar:
@@ -80,20 +83,34 @@ with st.sidebar:
 
     st.divider()
     st.header("⚙️ Yapay Zeka Ayarları")
-    st.caption("Claude API özelliklerini (CV yeniden yazma & uyarlama) kullanmak için anahtarınızı girebilirsiniz:")
+    st.caption("CV uyarlama, yeniden yazma ve analiz için yapay zeka sağlayıcınızı seçin:")
+
+    from app.llm_client import PROVIDERS
+
+    provider_choice = st.selectbox(
+        "Yapay Zeka Sağlayıcısı",
+        options=list(PROVIDERS.keys()),
+        format_func=lambda k: PROVIDERS[k]["name"],
+        key="ai_provider_select",
+    )
+
+    prov_info = PROVIDERS[provider_choice]
+    env_var_name = prov_info["env_var"]
     api_key_input = st.text_input(
-        "Anthropic API Anahtarı",
+        f"{prov_info['name']} API Anahtarı",
         type="password",
-        value=os.environ.get("ANTHROPIC_API_KEY", ""),
-        help="sk-ant-... ile başlayan anahtarınız.",
+        value=os.environ.get(env_var_name, ""),
+        help=f"{env_var_name} ortam değişkeninden veya buradan girilebilir.",
+        key=f"api_key_input_{provider_choice}",
     )
     model_choice = st.selectbox(
-        "Claude Modeli",
-        options=["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
+        "Model",
+        options=prov_info["models"],
         index=0,
+        key=f"model_choice_{provider_choice}",
     )
     if api_key_input:
-        os.environ["ANTHROPIC_API_KEY"] = api_key_input
+        os.environ[env_var_name] = api_key_input
 
     st.divider()
     st.header("💾 Veri Yedekleme")
@@ -655,6 +672,19 @@ with tab_tracker:
                 else:
                     st.caption("Veri yok.")
 
+        from app.outreach import check_follow_up_needed
+        pending_fu = check_follow_up_needed(DB_PATH, days_threshold=7)
+        if pending_fu:
+            with st.expander(f"⏳ Takip Zamanı Gelmiş Başvurular ({len(pending_fu)})", expanded=True):
+                st.warning(f"**{len(pending_fu)} adet** başvurunuzun üzerinden 7 günden fazla zaman geçti. Nazik bir durum sorgulama e-postası atabilirsiniz.")
+                for fu in pending_fu:
+                    fu_c1, fu_c2, fu_c3 = st.columns([3, 1, 1])
+                    fu_c1.write(f"💼 **{fu['title']}** @ {fu['company']} ({fu['days_elapsed']} gün önce)")
+                    fu_c2.caption(f"Tarih: {fu['applied_at']}")
+                    if fu_c3.button("Detaya Git", key=f"btn_goto_fu_{fu['job_url']}"):
+                        st.session_state["_selected_job_for_tracker"] = fu["job_url"]
+                        st.rerun()
+
         view_mode = st.radio("Görünüm Seçeneği", ["📊 Kanban Panosu", "📋 Tablo Listesi"], horizontal=True)
 
         if view_mode == "📊 Kanban Panosu":
@@ -793,9 +823,17 @@ with tab_tracker:
             selected_job_data = get_job(DB_PATH, selected_url)
             if selected_job_data:
                 is_fav = bool(selected_job_data["favorite"])
-                if st.button("💔 Favorilerden Çıkar" if is_fav else "⭐ Favorilere Ekle", key=f"fav_{selected_url}"):
+                c_act1, c_act2, c_act3 = st.columns([1, 1, 2])
+                if c_act1.button("💔 Favorilerden Çıkar" if is_fav else "⭐ Favorilere Ekle", key=f"fav_{selected_url}"):
                     toggle_favorite(DB_PATH, selected_url, not is_fav)
                     st.rerun()
+
+                c_act2.link_button("🌐 İlan Sayfası ↗️", selected_url)
+                if selected_job_data["status"] == "yeni":
+                    if c_act3.button("🚀 Başvuruldu Olarak İşaretle", type="primary", key=f"quick_app_btn_{selected_url}"):
+                        set_status(DB_PATH, selected_url, "başvuruldu")
+                        st.success("İlan durumu 'Başvuruldu' olarak güncellendi!")
+                        st.rerun()
 
                 prof_for_match = try_load_profile()
                 if prof_for_match:
@@ -889,6 +927,32 @@ with tab_tracker:
                             st.text_input("Konu", value=sub_ty, key=f"ty_sub_{selected_url}")
                             st.text_area("E-posta Gövdesi", value=body_ty, height=200, key=f"ty_body_{selected_url}")
 
+                    with st.expander("💰 Maaş Beklentisi & Pazarlık Rehberi"):
+                        from app.salary_estimator import estimate_salary
+
+                        sal_col1, sal_col2, sal_col3 = st.columns(3)
+                        role_val = sal_col1.text_input("Rol / Pozisyon", value=selected_job_data["title"] or "Yazılım Geliştirici", key=f"sal_r_{selected_url}")
+                        exp_val = sal_col2.selectbox("Deneyim Seviyesi", ["junior", "mid", "senior", "lead"], index=1, format_func=lambda x: {"junior": "Junior (0-2 Yıl)", "mid": "Mid-Level (2-5 Yıl)", "senior": "Senior (5-8 Yıl)", "lead": "Lead / Staff (8+ Yıl)"}[x], key=f"sal_e_{selected_url}")
+                        curr_val = sal_col3.selectbox("Para Birimi", ["TRY", "USD", "EUR"], index=0, key=f"sal_c_{selected_url}")
+
+                        sal_res = estimate_salary(role_val, experience_level=exp_val, location=selected_job_data["location"] or "istanbul", currency=curr_val)
+
+                        m_c1, m_c2, m_c3 = st.columns(3)
+                        m_c1.metric("Tahmini Minimum", f"{sal_res.min_monthly:,.0f} {sal_res.currency} / ay")
+                        m_c2.metric("Piyasa Ortancası", f"{sal_res.median_monthly:,.0f} {sal_res.currency} / ay")
+                        m_c3.metric("Tahmini Üst Bant", f"{sal_res.max_monthly:,.0f} {sal_res.currency} / ay")
+
+                        st.caption(f"Yıllık eşdeğer: {sal_res.min_annual:,.0f} - {sal_res.max_annual:,.0f} {sal_res.currency}")
+                        st.info(sal_res.market_insights)
+
+                        st.markdown("**🗣️ Mülakatta Kullanabileceğiniz Pazarlık Cümleleri:**")
+                        for tp in sal_res.talking_points:
+                            st.write(f"- *\"{tp}\"*")
+
+                        st.markdown("**💡 Pazarlık İpuçları & Stratejiler:**")
+                        for tip in sal_res.negotiation_tips:
+                            st.caption(f"• {tip}")
+
 
 
             new_status = st.selectbox("Yeni durum", options=STATUSES)
@@ -975,9 +1039,18 @@ with tab_letter:
                 st.session_state["cover_letter_text"] = letter
         if "cover_letter_text" in st.session_state:
             edited = st.text_area("Taslak (düzenlenebilir)", value=st.session_state["cover_letter_text"], height=300)
-            dl_col1, dl_col2 = st.columns(2)
-            dl_col1.download_button("Metni indir (.txt)", data=edited, file_name="on_yazi.txt", mime="text/plain")
-            pdf_bytes = bytes(render_letter_pdf(edited).output())
-            dl_col2.download_button(
-                "PDF olarak indir", data=pdf_bytes, file_name="on_yazi.pdf", mime="application/pdf"
+            lt_col1, lt_col2, lt_col3 = st.columns([1, 1, 1])
+            lt_col1.download_button("Metni indir (.txt)", data=edited, file_name="on_yazi.txt", mime="text/plain")
+            letter_theme = lt_col2.selectbox(
+                "Kurumsal Antet Teması",
+                options=list(THEMES.keys()),
+                format_func=lambda k: THEMES[k]["name"],
+                key="letter_theme_choice",
+            )
+            pdf_bytes = bytes(render_letter_pdf(edited, profile=profile, theme=letter_theme).output())
+            lt_col3.download_button(
+                "Kurumsal PDF olarak indir",
+                data=pdf_bytes,
+                file_name=f"{profile.contact.full_name.replace(' ', '_')}_On_Yazi.pdf",
+                mime="application/pdf",
             )
