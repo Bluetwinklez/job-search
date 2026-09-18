@@ -31,6 +31,9 @@ Oluştur**, **İş Ara**, **Başvurularım**, **Ön Yazı**.
 | İlana özel ön yazı taslağı (PDF/metin) | `app/cover_letter.py` | Hayır |
 | İlana özel CV uyarlama | `app/cv_tailor.py` | Evet (Claude API) |
 | Var olan bir CV'yi ATS-dostu yeniden yazma | `app/cv_rewrite.py` | Evet (Claude API) |
+| İngilizce CV üretimi | `app/cv_translate.py` | Evet (Claude API) |
+| Kişisel mülakat soru bankası (kaydet, cevap yaz, filtrele) | `app/job_search.py` | Hayır |
+| Karanlık mod & mobil uyumlu arayüz | `app/ui_theme.py`, `.streamlit/config.toml` | Hayır |
 | Web arayüzü (hepsini birleştirir) | `streamlit_app.py` | — |
 | Windows tek tıkla masaüstü başlatıcı | `baslat.bat` | — |
 
@@ -250,6 +253,17 @@ LinkedIn profilinin PDF olarak dışa aktarılan hali (LinkedIn > Profili
 Düzenle > Daha Fazla > Profili PDF Olarak Kaydet) veya profil metninin
 kopyala-yapıştır hâli doğrudan yüklenip aynı ATS-dostu yeniden yazma
 işleminden geçirilebilir.
+
+## Karanlık Mod & Mobil Kullanım
+
+Sağ üstteki menüden (⋮ > Settings > Theme) Açık, Koyu veya "Sistem
+Ayarını Kullan" seçenekleri arasında dilediğin zaman geçiş yapabilirsin;
+tercih tarayıcıda hatırlanır. `.streamlit/config.toml` yalnızca
+varsayılan (Açık) temanın vurgu rengini tanımlar, koyu temayı
+zorlamaz. Arayüz (`app/ui_theme.py`) hem açık hem koyu temada okunaklı
+kalacak şekilde tasarlanmıştır; ayrıca telefon/tablet genişliklerinde
+(≤768px) sekmeler, kartlar ve butonlar otomatik olarak sıkışık/dokunmatik-
+dostu bir düzene geçer, kenar çubuğu (sidebar) daraltılabilir hale gelir.
 
 ## Testleri Çalıştırma
 

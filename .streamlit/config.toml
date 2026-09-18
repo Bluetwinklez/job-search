@@ -1,0 +1,8 @@
+# Uygulamanın görsel kimliği. Kullanıcılar sağ üstteki menüden
+# (⋮ > Settings > Theme) Açık/Koyu/Sistem Ayarı arasında dilediği
+# zaman geçiş yapabilir; buradaki ayarlar yalnızca varsayılan
+# (Açık) temanın vurgu rengini ve yazı tipini belirler.
+[theme]
+base = "light"
+primaryColor = "#1c386f"
+font = "sans serif"
