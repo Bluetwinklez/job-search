@@ -66,6 +66,12 @@ class TestCVGenerator(unittest.TestCase):
             self.assertGreater(len(pdf_bytes), 1000)
             self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
 
+    def test_build_cv_english_labels(self):
+        pdf = build_cv(self.profile, language="en")
+        pdf_bytes = bytes(pdf.output())
+        self.assertGreater(len(pdf_bytes), 1000)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
+
     def test_render_cover_letter_pdf(self):
         letter_text = "Sayın Yetkili,\n\nPozisyon için başvurumu iletiyorum.\n\nSaygılarımla,\nAyşe Kaya"
         pdf = render_letter_pdf(letter_text)

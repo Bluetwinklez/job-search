@@ -74,6 +74,31 @@ FONT_FAMILY = "DejaVu"
 
 MARGIN = 18
 
+LABELS: dict[str, dict[str, str]] = {
+    "tr": {
+        "summary": "Özet",
+        "experience": "Deneyim",
+        "education": "Eğitim",
+        "skills": "Yetenekler",
+        "projects": "Projeler",
+        "certifications": "Sertifikalar",
+        "languages": "Diller",
+        "present": "Halen",
+        "tech_stack": "Teknolojiler: ",
+    },
+    "en": {
+        "summary": "Summary",
+        "experience": "Experience",
+        "education": "Education",
+        "skills": "Skills",
+        "projects": "Projects",
+        "certifications": "Certifications",
+        "languages": "Languages",
+        "present": "Present",
+        "tech_stack": "Technologies: ",
+    },
+}
+
 
 class CVDocument(FPDF):
     def __init__(self, theme_colors: dict | None = None, *args, **kwargs):
@@ -107,13 +132,24 @@ class CVDocument(FPDF):
         self.ln(2.5)
 
 
-def build_cv(profile: Profile, theme: str = "classic_navy", photo_path: str | Path | None = None) -> FPDF:
+def build_cv(
+    profile: Profile,
+    theme: str = "classic_navy",
+    photo_path: str | Path | None = None,
+    language: str = "tr",
+) -> FPDF:
     """`photo_path` verilirse sağ üst köşeye küçük bir vesikalık fotoğraf eklenir.
 
     Fotoğraf tamamen opsiyoneldir: bazı sektörlerde/ülkelerde beklenir, ama
     bazı ATS sistemleri görselli CV'leri daha zor ayrıştırır. Metin akışını
     etkilemeyecek şekilde (sağ üst köşede, ayrı bir blokta) yerleştirilir.
+
+    `language` yalnızca sabit bölüm başlıklarını (Özet/Summary vb.) belirler;
+    profildeki gerçek içerik zaten hangi dildeyse o dilde kalır. İngilizce
+    içerikli bir CV için önce `app.cv_translate.translate_profile_to_english`
+    ile profili çevirip sonucu bu fonksiyona `language="en"` ile vermek gerekir.
     """
+    labels = LABELS.get(language, LABELS["tr"])
     colors = THEMES.get(theme, THEMES["classic_navy"])
     pdf = CVDocument(theme_colors=colors, format="A4")
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -159,12 +195,12 @@ def build_cv(profile: Profile, theme: str = "classic_navy", photo_path: str | Pa
     pdf.set_line_width(0.2)
 
     if profile.summary:
-        pdf.section_title("Özet")
+        pdf.section_title(labels["summary"])
         pdf.set_font(FONT_FAMILY, "", 10)
         pdf.multi_cell(0, 5.5, profile.summary, new_x="LMARGIN", new_y="NEXT")
 
     if profile.experience:
-        pdf.section_title("Deneyim")
+        pdf.section_title(labels["experience"])
         for i, exp in enumerate(profile.experience):
             if i > 0:
                 pdf.divider()
@@ -179,7 +215,7 @@ def build_cv(profile: Profile, theme: str = "classic_navy", photo_path: str | Pa
 
             pdf.set_font(FONT_FAMILY, "", 9)
             pdf.set_text_color(*pdf.muted_color)
-            date_range = f"{exp.start_date} - {exp.end_date or 'Halen'}"
+            date_range = f"{exp.start_date} - {exp.end_date or labels['present']}"
             pdf.cell(0, 5.5, date_range, new_x="LMARGIN", new_y="NEXT")
             pdf.ln(0.5)
 
@@ -192,12 +228,12 @@ def build_cv(profile: Profile, theme: str = "classic_navy", photo_path: str | Pa
             if exp.tech_stack:
                 pdf.set_font(FONT_FAMILY, "", 9)
                 pdf.set_text_color(*pdf.muted_color)
-                pdf.multi_cell(0, 5, "Teknolojiler: " + ", ".join(exp.tech_stack), new_x="LMARGIN", new_y="NEXT")
+                pdf.multi_cell(0, 5, labels["tech_stack"] + ", ".join(exp.tech_stack), new_x="LMARGIN", new_y="NEXT")
                 pdf.set_text_color(*pdf.text_color_val)
             pdf.ln(1.5)
 
     if profile.education:
-        pdf.section_title("Eğitim")
+        pdf.section_title(labels["education"])
         for i, edu in enumerate(profile.education):
             if i > 0:
                 pdf.ln(1)
@@ -210,11 +246,11 @@ def build_cv(profile: Profile, theme: str = "classic_navy", photo_path: str | Pa
             pdf.multi_cell(0, 5.5, edu.school, new_x="LMARGIN", new_y="NEXT")
             pdf.set_font(FONT_FAMILY, "", 9)
             pdf.set_text_color(*pdf.muted_color)
-            pdf.cell(0, 5.5, f"{edu.start_date} - {edu.end_date or 'Halen'}", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 5.5, f"{edu.start_date} - {edu.end_date or labels['present']}", new_x="LMARGIN", new_y="NEXT")
             pdf.set_text_color(*pdf.text_color_val)
 
     if profile.skills:
-        pdf.section_title("Yetenekler")
+        pdf.section_title(labels["skills"])
         for group in profile.skills:
             pdf.set_font(FONT_FAMILY, "B", 9.5)
             pdf.set_text_color(*pdf.text_color_val)
@@ -226,7 +262,7 @@ def build_cv(profile: Profile, theme: str = "classic_navy", photo_path: str | Pa
             pdf.set_text_color(*pdf.text_color_val)
 
     if profile.projects:
-        pdf.section_title("Projeler")
+        pdf.section_title(labels["projects"])
         for proj in profile.projects:
             pdf.set_font(FONT_FAMILY, "B", 10)
             pdf.set_text_color(*TEXT_COLOR)
@@ -238,11 +274,11 @@ def build_cv(profile: Profile, theme: str = "classic_navy", photo_path: str | Pa
             if proj.technologies:
                 pdf.set_font(FONT_FAMILY, "", 8.5)
                 pdf.set_text_color(*MUTED_COLOR)
-                pdf.multi_cell(0, 4.5, "Teknolojiler: " + ", ".join(proj.technologies), new_x="LMARGIN", new_y="NEXT")
+                pdf.multi_cell(0, 4.5, labels["tech_stack"] + ", ".join(proj.technologies), new_x="LMARGIN", new_y="NEXT")
             pdf.ln(1)
 
     if profile.certifications:
-        pdf.section_title("Sertifikalar")
+        pdf.section_title(labels["certifications"])
         for cert in profile.certifications:
             pdf.set_font(FONT_FAMILY, "", 9.5)
             pdf.set_text_color(*TEXT_COLOR)
@@ -251,7 +287,7 @@ def build_cv(profile: Profile, theme: str = "classic_navy", photo_path: str | Pa
             pdf.multi_cell(0, 5, cert, new_x="LMARGIN", new_y="NEXT")
 
     if profile.languages:
-        pdf.section_title("Diller")
+        pdf.section_title(labels["languages"])
         pdf.set_font(FONT_FAMILY, "", 9.5)
         pdf.multi_cell(0, 5.5, ", ".join(profile.languages), new_x="LMARGIN", new_y="NEXT")
 
@@ -260,11 +296,15 @@ def build_cv(profile: Profile, theme: str = "classic_navy", photo_path: str | Pa
 
 
 def generate_cv(
-    profile_path: Path, output_path: Path, theme: str = "classic_navy", photo_path: Path | None = None
+    profile_path: Path,
+    output_path: Path,
+    theme: str = "classic_navy",
+    photo_path: Path | None = None,
+    language: str = "tr",
 ) -> None:
     data = json.loads(profile_path.read_text(encoding="utf-8"))
     profile = Profile.model_validate(data)
-    pdf = build_cv(profile, theme=theme, photo_path=photo_path)
+    pdf = build_cv(profile, theme=theme, photo_path=photo_path, language=language)
     pdf.output(str(output_path))
 
 
@@ -279,9 +319,10 @@ def main() -> None:
         help=f"CV renk teması: {', '.join(THEMES.keys())}",
     )
     parser.add_argument("--photo", type=Path, default=None, help="Opsiyonel vesikalık fotoğraf (.jpg/.png)")
+    parser.add_argument("--language", choices=["tr", "en"], default="tr", help="CV bölüm başlıklarının dili")
     args = parser.parse_args()
 
-    generate_cv(args.profile, args.output, theme=args.theme, photo_path=args.photo)
+    generate_cv(args.profile, args.output, theme=args.theme, photo_path=args.photo, language=args.language)
     print(f"CV oluşturuldu ({args.theme}): {args.output}")
 
 
