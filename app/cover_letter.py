@@ -28,14 +28,28 @@ def _matching_skills(profile: Profile, job_description: str | None, top_n: int =
     return ordered[:top_n]
 
 
+def _latest_experience(profile: Profile) -> Experience | None:
+    """Profildeki en güncel (halen devam eden veya en yeni biten) deneyimi döner."""
+    if not profile.experience:
+        return None
+    for exp in profile.experience:
+        if exp.end_date is None:
+            return exp
+    try:
+        return max(profile.experience, key=lambda e: (e.end_date or "", e.start_date or ""))
+    except Exception:
+        return profile.experience[0]
+
+
 def _most_relevant_experience(profile: Profile, job_title: str, job_description: str | None) -> Experience | None:
     if not profile.experience:
         return None
+    latest_fallback = _latest_experience(profile)
     job_words = split_keywords(f"{job_title} {job_description or ''}")
     if not job_words:
-        return profile.experience[0]
+        return latest_fallback
 
-    best_exp = profile.experience[0]
+    best_exp = latest_fallback
     best_score = -1
     for exp in profile.experience:
         exp_text = f"{exp.company} {exp.role} {' '.join(exp.highlights)} {' '.join(exp.tech_stack)}"
@@ -44,7 +58,8 @@ def _most_relevant_experience(profile: Profile, job_title: str, job_description:
         if score > best_score:
             best_score = score
             best_exp = exp
-    return best_exp if best_score > 0 else profile.experience[0]
+    return best_exp if best_score > 0 else latest_fallback
+
 
 
 def generate_cover_letter(
