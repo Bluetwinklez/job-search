@@ -56,5 +56,17 @@
       "items": ["Docker", "Kubernetes", "AWS", "Git", "PostgreSQL"]
     }
   ],
+  "certifications": [
+    "AWS Certified Solutions Architect – Associate",
+    "CKA: Certified Kubernetes Administrator"
+  ],
+  "projects": [
+    {
+      "name": "Açık Kaynak API Gateway",
+      "description": "Yüksek performanslı, eklenti mimarisine sahip mikroservis ağ geçidi.",
+      "url": "github.com/ahmetyilmaz/api-gateway",
+      "technologies": ["Go", "Redis", "Docker"]
+    }
+  ],
   "languages": ["Türkçe (Anadil)", "İngilizce (İleri Seviye)"]
 }
