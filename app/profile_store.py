@@ -93,3 +93,16 @@ def load_history_text(name: str, stamp: str) -> str | None:
     if not path.exists():
         return None
     return path.read_text(encoding="utf-8")
+
+
+def clone_profile(source_name: str, target_name: str) -> bool:
+    """Mevcut bir profili yeni bir adla kopyalar/çoğaltır."""
+    source_p = profile_path(source_name)
+    if not source_p.exists():
+        return False
+    target_p = profile_path(target_name)
+    if target_p.exists():
+        return False
+    target_p.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(source_p, target_p)
+    return True
