@@ -5,5 +5,8 @@ venv/
 
 # Kişisel veriler ve üretilen çıktılar (repoya girmemeli)
 data/profile.json
+data/profiles/
+data/profile_history/
 data/jobs.db
 *.pdf
+*.ics
