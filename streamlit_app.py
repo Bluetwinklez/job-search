@@ -19,11 +19,14 @@ from app.cover_letter import generate_cover_letter, render_letter_pdf
 from app.cv_generator import THEMES, build_cv
 from app.cv_rewrite import rewrite_cv
 from app.cv_tailor import tailor_profile
+from app.job_comparator import compare_jobs
 from app.job_search import (
     ALL_SITES,
     STATUSES,
+    add_to_blacklist,
     add_watched_company,
     delete_saved_search,
+    get_blacklist,
     get_job,
     get_matched_skills,
     get_stats,
@@ -32,6 +35,7 @@ from app.job_search import (
     list_search_history,
     list_watched_companies,
     log_search,
+    remove_from_blacklist,
     remove_watched_company,
     save_jobs,
     save_search,
@@ -90,6 +94,35 @@ with st.sidebar:
     )
     if api_key_input:
         os.environ["ANTHROPIC_API_KEY"] = api_key_input
+
+    st.divider()
+    st.header("💾 Veri Yedekleme")
+    with st.expander("📦 Yedek İndir / Yükle"):
+        from app.backup import create_backup_zip, restore_backup_zip
+
+        st.caption("Veritabanı, profil ve sürüm geçmişinizi tek tıkla ZIP olarak yedekleyin.")
+        backup_bytes = create_backup_zip(Path("data"))
+        st.download_button(
+            "📥 Tam Yedek İndir (.zip)",
+            data=backup_bytes,
+            file_name="is_arama_asistani_yedek.zip",
+            mime="application/zip",
+            key="dl_backup_zip_btn",
+        )
+
+        st.markdown("---")
+        st.caption("Var olan bir ZIP yedeğini sisteme yükle:")
+        uploaded_backup = st.file_uploader("Yedek (.zip)", type=["zip"], key="backup_upload_zip")
+        if st.button("Yedeği Geri Yükle", key="restore_backup_btn"):
+            if uploaded_backup is not None:
+                res = restore_backup_zip(uploaded_backup.read(), Path("data"))
+                if res["success"]:
+                    st.success(f"Yedek geri yüklendi! ({len(res['files_restored'])} dosya)")
+                    st.rerun()
+                else:
+                    st.error(f"Geri yükleme hatası: {res['error']}")
+            else:
+                st.warning("Lütfen bir .zip dosyası seçin.")
 
 PROFILE_PATH = profile_store.profile_path(st.session_state["active_profile"])
 
@@ -486,6 +519,33 @@ with tab_search:
             for h in history[:15]:
                 st.caption(f"{h['searched_at'][:16].replace('T', ' ')} — \"{h['search_term']}\" @ {h['location'] or '(her yer)'} → {h['result_count']} sonuç")
 
+    with st.expander("🚫 Şirket & Kelime Kara Listesi (Blacklist)"):
+        st.caption("Arama sonuçlarında ve takip listesinde görmek istemediğiniz şirketleri veya anahtar kelimeleri ekleyebilirsiniz.")
+        bl_items = get_blacklist(DB_PATH) if DB_PATH.parent.exists() else []
+        if bl_items:
+            for b in bl_items:
+                b_c1, b_c2, b_c3 = st.columns([3, 1, 1])
+                kind_badge = "🏢 Şirket" if b["kind"] == "company" else "🔤 Kelime"
+                b_c1.write(f"🚫 **{b['keyword']}** ({kind_badge})")
+                b_c2.caption(b["created_at"][:10])
+                if b_c3.button("Sil", key=f"del_bl_{b['id']}"):
+                    remove_from_blacklist(DB_PATH, b["keyword"])
+                    st.rerun()
+        else:
+            st.info("Kara listenizde kayıtlı şirket veya kelime bulunmuyor.")
+
+        st.markdown("##### Yeni Kara Liste Kaydı Ekle")
+        nbl_c1, nbl_c2, nbl_c3 = st.columns([3, 2, 1])
+        new_bl_kw = nbl_c1.text_input("Şirket adı veya kelime", key="new_bl_kw_input")
+        new_bl_kind = nbl_c2.selectbox("Tür", ["company", "keyword"], format_func=lambda x: "Şirket" if x == "company" else "Kelime", key="new_bl_kind_select")
+        if nbl_c3.button("Ekle", key="add_bl_btn"):
+            if new_bl_kw.strip():
+                if add_to_blacklist(DB_PATH, new_bl_kw.strip(), new_bl_kind):
+                    st.success(f"'{new_bl_kw.strip()}' kara listeye eklendi.")
+                    st.rerun()
+                else:
+                    st.warning("Bu kayıt zaten kara listede mevcut.")
+
     with st.form("search_form"):
         c1, c2 = st.columns(2)
         search_term = c1.text_input("Pozisyon / anahtar kelime", key="search_term_val")
@@ -558,6 +618,43 @@ with tab_tracker:
         for i, s in enumerate(STATUSES, start=1):
             cols[i].metric(s.capitalize(), stats["by_status"].get(s, 0))
 
+        with st.expander("📈 Başvuru Analitiği & Dönüşüm Hunisi (Funnel)", expanded=False):
+            from app.analytics import get_funnel_metrics, get_platform_distribution, get_score_distribution
+
+            fm = get_funnel_metrics(DB_PATH)
+            an_col1, an_col2, an_col3 = st.columns(3)
+            an_col1.metric("Başvuru Oranı (Yeni ➔ Başvuruldu)", f"%{fm['applied_rate']}", help="Taranan ilanlardan kaçına başvurulduğu")
+            an_col2.metric("Mülakat Dönüş Oranı", f"%{fm['interview_rate']}", help="Başvurulardan mülakata dönüş oranı")
+            an_col3.metric("Teklif Oranı", f"%{fm['offer_rate']}", help="Mülakatlardan teklife dönüş oranı")
+
+            st.markdown("##### 🔻 Başvuru Süreç Hunisi")
+            f1, f2, f3 = st.columns([1, 1, 1])
+            with f1:
+                st.write(f"📨 **Başvuruldu:** {fm['applied']} ilan")
+                st.progress(min(1.0, fm['applied_rate'] / 100.0) if fm['total'] > 0 else 0.0)
+            with f2:
+                st.write(f"💼 **Mülakat:** {fm['interview']} görüşme")
+                st.progress(min(1.0, fm['interview_rate'] / 100.0) if fm['applied'] > 0 else 0.0)
+            with f3:
+                st.write(f"🎉 **Teklif:** {fm['offer']} adet")
+                st.progress(min(1.0, fm['offer_rate'] / 100.0) if fm['interview'] > 0 else 0.0)
+
+            c_ch1, c_ch2 = st.columns(2)
+            with c_ch1:
+                st.markdown("##### 🌐 Platform Dağılımı")
+                p_dist = get_platform_distribution(DB_PATH)
+                if p_dist:
+                    st.bar_chart(p_dist)
+                else:
+                    st.caption("Veri yok.")
+            with c_ch2:
+                st.markdown("##### 🎯 Eşleşme Skoru Dağılımı")
+                s_dist = get_score_distribution(DB_PATH)
+                if s_dist:
+                    st.bar_chart(s_dist)
+                else:
+                    st.caption("Veri yok.")
+
         view_mode = st.radio("Görünüm Seçeneği", ["📊 Kanban Panosu", "📋 Tablo Listesi"], horizontal=True)
 
         if view_mode == "📊 Kanban Panosu":
@@ -607,15 +704,65 @@ with tab_tracker:
 
         st.divider()
         st.subheader("İlan Detayları ve Durum Yönetimi")
-        fc1, fc2 = st.columns([3, 1])
+        fc1, fc2, fc3, fc4 = st.columns([2, 1, 1, 1])
         status_filter = fc1.selectbox("Duruma göre filtrele", options=["(hepsi)"] + STATUSES)
         favorite_only = fc2.checkbox("⭐ Yalnızca favoriler")
+        filter_remote = fc3.checkbox("🏠 Yalnızca uzaktan")
+        filter_bl = fc4.checkbox("🚫 Kara liste gizle", value=True)
         rows = list_jobs(
             DB_PATH,
             limit=200,
             status=None if status_filter == "(hepsi)" else status_filter,
             favorite_only=favorite_only,
+            remote_only=filter_remote,
+            filter_blacklisted=filter_bl,
         )
+
+        with st.expander("⚖️ Yan Yana İlan Karşılaştırma Aracı (Side-by-Side Compare)"):
+            st.caption("Veritabanındaki ilanlardan 2 veya 3 tanesini seçip yan yana yetenek uyumunu, maaşını ve avantajlarını kıyaslayabilirsiniz.")
+            all_jobs_for_comp = list_jobs(DB_PATH, limit=100, filter_blacklisted=filter_bl)
+            if len(all_jobs_for_comp) < 2:
+                st.info("Karşılaştırma yapabilmek için veritabanında en az 2 ilan bulunmalıdır.")
+            else:
+                comp_options = {f"{j['title']} @ {j['company']} ({j['site'] or ''})": j["job_url"] for j in all_jobs_for_comp}
+                selected_for_comp = st.multiselect(
+                    "Karşılaştırılacak İlanları Seçin (En fazla 3 ilan)",
+                    options=list(comp_options.keys()),
+                    max_selections=3,
+                    key="comp_multiselect",
+                )
+                if st.button("Seçili İlanları Kıyasla", key="run_comp_btn", type="primary"):
+                    if len(selected_for_comp) < 2:
+                        st.warning("Lütfen karşılaştırmak için en az 2 ilan seçin.")
+                    else:
+                        jobs_to_compare = [dict(get_job(DB_PATH, comp_options[lbl])) for lbl in selected_for_comp if get_job(DB_PATH, comp_options[lbl])]
+                        prof = try_load_profile()
+                        comp_res = compare_jobs(jobs_to_compare, prof)
+
+                        st.info(comp_res.recommendation)
+                        if comp_res.common_skills:
+                            st.success(f"🤝 Tüm ilanlarda ortak aranan yetenekleriniz: **{', '.join(comp_res.common_skills)}**")
+
+                        comp_cols = st.columns(len(comp_res.columns))
+                        for c_idx, c_data in enumerate(comp_res.columns):
+                            with comp_cols[c_idx]:
+                                with st.container(border=True):
+                                    st.markdown(f"### {c_data.title}")
+                                    st.markdown(f"**🏢 {c_data.company}** ({c_data.site})")
+                                    st.markdown(f"📍 {c_data.location}")
+                                    st.markdown(f"🏠 **Çalışma:** {c_data.is_remote}")
+                                    st.markdown(f"💰 **Maaş:** {c_data.salary}")
+                                    st.markdown(f"🎯 **Uyum Skoru:** {c_data.match_score}")
+                                    st.markdown(f"📌 **Durum:** {c_data.status}")
+                                    st.markdown(f"📅 **Tarih:** {c_data.date_posted}")
+                                    if c_data.matched_skills:
+                                        st.markdown("**✅ Eşleşen Yetenekler:**")
+                                        st.caption(", ".join(c_data.matched_skills))
+                                    if c_data.missing_skills:
+                                        st.markdown("**⚠️ İlanda Olup Profilde Eksik:**")
+                                        st.caption(", ".join(c_data.missing_skills))
+                                    if c_data.job_url:
+                                        st.link_button("İlana Git ↗️", c_data.job_url)
         if not rows:
             st.info("Kayıt bulunamadı.")
         else:

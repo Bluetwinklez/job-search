@@ -83,6 +83,13 @@ CREATE TABLE IF NOT EXISTS company_watchlist (
     search_term TEXT,
     added_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS blacklist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    keyword TEXT UNIQUE NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'company',
+    created_at TEXT NOT NULL
+);
 """
 
 _JOBS_EXTRA_COLUMNS = {
@@ -292,12 +299,81 @@ def save_jobs(df, db_path: Path, profile: Profile | None = None) -> int:
 
 
 
+def add_to_blacklist(db_path: Path, keyword: str, kind: str = "company") -> bool:
+    """Şirket veya anahtar kelimeyi kara listeye ekler."""
+    keyword = keyword.strip()
+    if not keyword:
+        return False
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    created_at = datetime.now(timezone.utc).isoformat()
+    try:
+        conn.execute(
+            "INSERT INTO blacklist (keyword, kind, created_at) VALUES (?, ?, ?)",
+            (keyword, kind, created_at),
+        )
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
+
+
+def remove_from_blacklist(db_path: Path, keyword: str) -> bool:
+    """Kara listeden bir öğeyi kaldırır."""
+    if not db_path.exists():
+        return False
+    conn = sqlite3.connect(db_path)
+    _ensure_schema(conn)
+    cur = conn.execute("DELETE FROM blacklist WHERE LOWER(keyword) = LOWER(?) OR keyword = ?", (keyword, keyword))
+    conn.commit()
+    deleted = cur.rowcount > 0
+    conn.close()
+    return deleted
+
+
+def get_blacklist(db_path: Path) -> list[dict]:
+    """Kara listedeki tüm kayıtları döner."""
+    if not db_path.exists():
+        return []
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    _ensure_schema(conn)
+    rows = conn.execute("SELECT id, keyword, kind, created_at FROM blacklist ORDER BY created_at DESC").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def is_blacklisted(company: str | None, title: str | None, blacklist_items: list[dict]) -> bool:
+    """Şirketin veya ilanın kara listede olup olmadığını denetler."""
+    if not blacklist_items:
+        return False
+    comp_lower = turkish_lower(company or "")
+    title_lower = turkish_lower(title or "")
+    for item in blacklist_items:
+        target = turkish_lower(item.get("keyword", ""))
+        if not target:
+            continue
+        kind = item.get("kind", "company")
+        if kind == "company":
+            if target in comp_lower:
+                return True
+        else:
+            if target in title_lower or target in comp_lower:
+                return True
+    return False
+
+
 def list_jobs(
     db_path: Path,
     limit: int = 20,
     min_score: float | None = None,
     status: str | None = None,
     favorite_only: bool = False,
+    remote_only: bool = False,
+    filter_blacklisted: bool = True,
 ):
     if not db_path.exists():
         return []
@@ -307,7 +383,7 @@ def list_jobs(
     query = (
         "SELECT job_url, site, title, company, location, job_type, date_posted, "
         "match_score, status, notes, fetched_at, favorite, min_amount, max_amount, "
-        "currency, salary_interval, is_remote FROM jobs"
+        "currency, salary_interval, is_remote, description FROM jobs"
     )
     clauses = []
     params: list = []
@@ -319,13 +395,24 @@ def list_jobs(
         params.append(status)
     if favorite_only:
         clauses.append("favorite = 1")
+    if remote_only:
+        clauses.append("is_remote = 1")
     if clauses:
         query += " WHERE " + " AND ".join(clauses)
-    query += " ORDER BY fetched_at DESC LIMIT ?"
-    params.append(limit)
+    query += " ORDER BY fetched_at DESC"
+
+    fetch_limit = max(limit * 5, 100) if filter_blacklisted else limit
+    query += f" LIMIT {fetch_limit}"
+
     rows = conn.execute(query, params).fetchall()
     conn.close()
-    return rows
+
+    blacklist_items = get_blacklist(db_path) if filter_blacklisted else []
+    if not blacklist_items:
+        return rows[:limit]
+
+    filtered = [r for r in rows if not is_blacklisted(r["company"], r["title"], blacklist_items)]
+    return filtered[:limit]
 
 
 def get_job(db_path: Path, job_url: str):
