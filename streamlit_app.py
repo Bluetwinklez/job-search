@@ -303,6 +303,55 @@ with tab_tracker:
         for i, s in enumerate(STATUSES, start=1):
             cols[i].metric(s.capitalize(), stats["by_status"].get(s, 0))
 
+        view_mode = st.radio("Görünüm Seçeneği", ["📊 Kanban Panosu", "📋 Tablo Listesi"], horizontal=True)
+
+        if view_mode == "📊 Kanban Panosu":
+            kanban_cols = st.columns(len(STATUSES))
+            all_tracker_jobs = list_jobs(DB_PATH, limit=300)
+            jobs_by_status = {s: [r for r in all_tracker_jobs if r["status"] == s] for s in STATUSES}
+
+            status_emojis = {
+                "yeni": "🆕",
+                "başvuruldu": "📨",
+                "mülakat": "💼",
+                "teklif": "🎉",
+                "reddedildi": "❌",
+            }
+
+            for col_idx, status_name in enumerate(STATUSES):
+                with kanban_cols[col_idx]:
+                    st.markdown(f"#### {status_emojis.get(status_name, '')} {status_name.capitalize()} ({len(jobs_by_status[status_name])})")
+                    for job_item in jobs_by_status[status_name]:
+                        with st.container(border=True):
+                            score_text = f" · 🎯 %{int(job_item['match_score'] * 100)}" if job_item["match_score"] is not None else ""
+                            st.markdown(f"**{job_item['title']}**")
+                            st.caption(f"{job_item['company']} ({job_item['site'] or ''}){score_text}")
+                            if job_item["notes"]:
+                                st.caption(f"📝 {job_item['notes']}")
+
+                            if status_name == "yeni":
+                                if st.button("Başvur ➡️", key=f"kb_app_{job_item['job_url']}"):
+                                    set_status(DB_PATH, job_item["job_url"], "başvuruldu")
+                                    st.rerun()
+                            elif status_name == "başvuruldu":
+                                c_k1, c_k2 = st.columns(2)
+                                if c_k1.button("Mülakat 💼", key=f"kb_int_{job_item['job_url']}"):
+                                    set_status(DB_PATH, job_item["job_url"], "mülakat")
+                                    st.rerun()
+                                if c_k2.button("Red ❌", key=f"kb_rej_{job_item['job_url']}"):
+                                    set_status(DB_PATH, job_item["job_url"], "reddedildi")
+                                    st.rerun()
+                            elif status_name == "mülakat":
+                                c_k1, c_k2 = st.columns(2)
+                                if c_k1.button("Teklif 🎉", key=f"kb_off_{job_item['job_url']}"):
+                                    set_status(DB_PATH, job_item["job_url"], "teklif")
+                                    st.rerun()
+                                if c_k2.button("Red ❌", key=f"kb_rej2_{job_item['job_url']}"):
+                                    set_status(DB_PATH, job_item["job_url"], "reddedildi")
+                                    st.rerun()
+
+        st.divider()
+        st.subheader("İlan Detayları ve Durum Yönetimi")
         status_filter = st.selectbox("Duruma göre filtrele", options=["(hepsi)"] + STATUSES)
         rows = list_jobs(
             DB_PATH,
@@ -328,6 +377,7 @@ with tab_tracker:
                 mime="text/csv",
             )
 
+
             st.markdown("**Durum güncelle & Detay Gör**")
             options = {f"{r['title']} — {r['company']} ({r['job_url']})": r["job_url"] for r in rows}
             selected_label = st.selectbox("İlan seç", options=list(options.keys()))
@@ -342,13 +392,80 @@ with tab_tracker:
                     if matched_kws:
                         st.info(f"🎯 Bu ilanla eşleşen yetenekleriniz: **{', '.join(matched_kws)}**")
 
+                    with st.expander("🧠 Bu İlana Özel Mülakat Hazırlığı & Soru Rehberi"):
+                        if st.button("Mülakat Rehberi & Soruları Üret", key=f"btn_prep_{selected_url}"):
+                            from app.interview_prep import generate_mock_interview
+
+                            with st.spinner("Mülakat stratejisi ve soruları hazırlanıyor..."):
+                                prep_res = generate_mock_interview(
+                                    prof_for_match,
+                                    selected_job_data["title"] or "Uzman",
+                                    selected_job_data["company"] or "Şirket",
+                                    selected_job_data["description"],
+                                    model=model_choice,
+                                    api_key=api_key_input or None,
+                                )
+                            st.session_state[f"prep_{selected_url}"] = prep_res
+
+                        cached_prep = st.session_state.get(f"prep_{selected_url}")
+                        if cached_prep:
+                            st.markdown("##### ⭐ Öne Çıkarmanız Gereken Güçlü Yönleriniz")
+                            for s in cached_prep.key_strengths:
+                                st.markdown(f"- {s}")
+
+                            st.markdown("##### ⚠️ Dikkat Edilmesi / Savunulması Gerekenler")
+                            for g in cached_prep.potential_gaps:
+                                st.markdown(f"- {g}")
+
+                            st.markdown("##### 🎯 Olası Mülakat Soruları & Cevap Taktikleri")
+                            for idx, q in enumerate(cached_prep.questions, 1):
+                                with st.container(border=True):
+                                    st.markdown(f"**{idx}. [{q.category}]** {q.question}")
+                                    st.caption(f"🎯 **Neden Sorulur?** {q.rationale}")
+                                    st.info(f"💡 **Cevap İpucu:** {q.answer_tip}")
+
+
             new_status = st.selectbox("Yeni durum", options=STATUSES)
             notes = st.text_input("Not (opsiyonel)")
+
+            if new_status == "mülakat" or (selected_job_data and selected_job_data["status"] == "mülakat"):
+                with st.expander("📅 Mülakatı Takvime Ekle (.ics İndir)", expanded=True):
+                    col_m1, col_m2 = st.columns(2)
+                    interview_date = col_m1.date_input("Mülakat Tarihi", key="interview_date")
+                    interview_time = col_m2.time_input("Mülakat Saati", key="interview_time")
+                    meeting_link = st.text_input(
+                        "Toplantı Linki veya Konum",
+                        placeholder="https://meet.google.com/... veya Ofis Adresi",
+                        key="meeting_link",
+                    )
+                    duration = st.slider("Tahmini Süre (dakika)", min_value=15, max_value=120, value=45, step=15)
+
+                    if selected_job_data:
+                        from datetime import datetime
+                        from app.calendar_export import generate_ics_event
+
+                        dt_start = datetime.combine(interview_date, interview_time)
+                        ics_content = generate_ics_event(
+                            title=selected_job_data["title"] or "İş Mülakatı",
+                            company=selected_job_data["company"] or "",
+                            start_time=dt_start,
+                            duration_minutes=duration,
+                            location_or_url=meeting_link or None,
+                            notes=notes or selected_job_data["notes"],
+                        )
+                        st.download_button(
+                            "📅 Takvim Dosyasını İndir (.ics)",
+                            data=ics_content,
+                            file_name=f"mulakat_{(selected_job_data['company'] or 'etkinlik').replace(' ', '_')}.ics",
+                            mime="text/calendar",
+                        )
+
             if st.button("Güncelle"):
                 job_url = options[selected_label]
                 set_status(DB_PATH, job_url, new_status, notes or None)
                 st.success("Güncellendi.")
                 st.rerun()
+
 
 # ------------------------------------------------------------------ Ön Yazı -
 with tab_letter:
