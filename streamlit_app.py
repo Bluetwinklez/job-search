@@ -424,6 +424,60 @@ with tab_tracker:
                                     st.caption(f"🎯 **Neden Sorulur?** {q.rationale}")
                                     st.info(f"💡 **Cevap İpucu:** {q.answer_tip}")
 
+                    with st.expander("✉️ İletişim Şablonları (LinkedIn, Soğuk E-posta, Takip)"):
+                        from app.outreach import (
+                            generate_cold_email,
+                            generate_follow_up_email,
+                            generate_linkedin_connection_note,
+                            generate_thank_you_email,
+                        )
+
+                        recip = st.text_input("Muhatap / Yetkili Adı (opsiyonel)", key=f"recip_{selected_url}")
+                        tab_li, tab_cold, tab_fu, tab_ty = st.tabs(
+                            ["🔗 LinkedIn Notu", "📧 Soğuk E-posta", "⏳ Takip E-postası", "🤝 Teşekkür Notu"]
+                        )
+
+                        with tab_li:
+                            li_note = generate_linkedin_connection_note(
+                                prof_for_match,
+                                selected_job_data["title"] or "Pozisyon",
+                                selected_job_data["company"] or "Şirket",
+                                recipient_name=recip or None,
+                            )
+                            st.text_area("LinkedIn Bağlantı Notu (Max 300 Karakter)", value=li_note, height=100)
+                            st.caption(f"Karakter sayısı: {len(li_note)} / 300")
+
+                        with tab_cold:
+                            sub, body = generate_cold_email(
+                                prof_for_match,
+                                selected_job_data["title"] or "Pozisyon",
+                                selected_job_data["company"] or "Şirket",
+                                recipient_name=recip or None,
+                            )
+                            st.text_input("Konu", value=sub, key=f"cold_sub_{selected_url}")
+                            st.text_area("E-posta Gövdesi", value=body, height=220, key=f"cold_body_{selected_url}")
+
+                        with tab_fu:
+                            sub_fu, body_fu = generate_follow_up_email(
+                                prof_for_match,
+                                selected_job_data["title"] or "Pozisyon",
+                                selected_job_data["company"] or "Şirket",
+                                days_ago=7,
+                            )
+                            st.text_input("Konu", value=sub_fu, key=f"fu_sub_{selected_url}")
+                            st.text_area("E-posta Gövdesi", value=body_fu, height=200, key=f"fu_body_{selected_url}")
+
+                        with tab_ty:
+                            sub_ty, body_ty = generate_thank_you_email(
+                                prof_for_match,
+                                selected_job_data["title"] or "Pozisyon",
+                                selected_job_data["company"] or "Şirket",
+                                interviewer_name=recip or None,
+                            )
+                            st.text_input("Konu", value=sub_ty, key=f"ty_sub_{selected_url}")
+                            st.text_area("E-posta Gövdesi", value=body_ty, height=200, key=f"ty_body_{selected_url}")
+
+
 
             new_status = st.selectbox("Yeni durum", options=STATUSES)
             notes = st.text_input("Not (opsiyonel)")

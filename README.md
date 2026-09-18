@@ -21,37 +21,44 @@ Oluştur**, **İş Ara**, **Başvurularım**, **Ön Yazı**.
 
 | Özellik | Modül | LLM gerekli mi? |
 |---|---|---|
-| ATS-dostu PDF CV üretimi | `app/cv_generator.py` | Hayır |
-| Çoklu platformdan iş ilanı tarama (LinkedIn, Indeed, Glassdoor, Google, ZipRecruiter, Bayt, Naukri) | `app/job_search.py` | Hayır |
-| İlan / profil eşleşme skoru | `app/job_search.py` | Hayır |
-| Başvuru durumu takibi | `app/tracker.py` | Hayır |
+| ATS-dostu PDF CV üretimi (Projeler & Sertifikalar dahil) | `app/cv_generator.py` | Hayır |
+| Çoklu platformdan iş ilanı tarama (LinkedIn, Indeed, Glassdoor, Google, vb.) | `app/job_search.py` | Hayır |
+| İlan / profil eşleşme skoru & analiz | `app/job_search.py`, `app/matching.py` | Hayır |
+| Başvuru CRM'i & Kanban Panosu | `streamlit_app.py`, `app/tracker.py` | Hayır |
+| Mülakat takvimi entegrasyonu (.ics indir) | `app/calendar_export.py` | Hayır |
+| AI Mülakat Hazırlık Asistanı & Soru Rehberi | `app/interview_prep.py` | Opsiyonel (kural tabanlı fallback) |
+| Ağ & İletişim Şablonları (LinkedIn, Soğuk E-posta, Takip) | `app/outreach.py` | Hayır |
 | İlana özel ön yazı taslağı (PDF/metin) | `app/cover_letter.py` | Hayır |
 | İlana özel CV uyarlama | `app/cv_tailor.py` | Evet (Claude API) |
 | Var olan bir CV'yi ATS-dostu yeniden yazma | `app/cv_rewrite.py` | Evet (Claude API) |
 | Web arayüzü (hepsini birleştirir) | `streamlit_app.py` | — |
+| Windows tek tıkla masaüstü başlatıcı | `baslat.bat` | — |
 
-Claude API gerektiren iki özellik (`cv_tailor`, `cv_rewrite`) için
-ortamda `ANTHROPIC_API_KEY` tanımlı olmalı; diğer tüm özellikler
-anahtar gerektirmeden çalışır.
+Claude API gerektiren özellikler için kenar çubuğundan (Sidebar) veya ortamdan `ANTHROPIC_API_KEY` girilebilir; diğer tüm özellikler anahtarsız doğrudan çalışır.
 
 ## Proje Yapısı
 
 ```
 app/
-  models.py         # Merkezi profil şeması (Pydantic)
-  cv_generator.py    # Profilden ATS-dostu PDF CV üretimi
-  job_search.py      # Çoklu platform iş ilanı tarama + SQLite kayıt + eşleşme skoru
-  tracker.py         # Başvuru durumu takip CLI'ı
-  cover_letter.py     # Ön yazı taslağı üretimi (metin + PDF)
-  cv_tailor.py        # İlana özel CV uyarlama (Claude API)
-  cv_rewrite.py       # Var olan CV'yi ATS-dostu yeniden yazma (Claude API)
-  matching.py         # Anahtar kelime eşleştirme yardımcıları (paylaşılan)
+  models.py           # Merkezi profil şeması (Pydantic: Deneyim, Eğitim, Sertifika, Proje)
+  cv_generator.py      # Profilden ATS-dostu PDF CV üretimi
+  job_search.py        # Çoklu platform iş ilanı tarama + SQLite kayıt + akıllı eşleşme
+  tracker.py           # Başvuru durumu takip CLI'ı
+  calendar_export.py   # Mülakatlar için RFC 5545 iCalendar (.ics) takvim üretici
+  interview_prep.py    # İlana ve profile özel mülakat soruları ve hazırlık asistanı
+  outreach.py          # LinkedIn 300 karakter notu, soğuk e-posta, takip & teşekkür şablonları
+  cover_letter.py       # Ön yazı taslağı üretimi (metin + PDF)
+  cv_tailor.py          # İlana özel CV uyarlama (Claude API)
+  cv_rewrite.py         # Var olan CV'yi ATS-dostu yeniden yazma (Claude API)
+  matching.py           # Türkçe karakter uyumlu anahtar kelime eşleştirme
 data/
   profile.example.json  # Örnek profil
   profile.json          # Kendi profilin (git'e girmez, .gitignore'da)
-  jobs.db                # Taranan ilanlar (git'e girmez)
-assets/fonts/            # PDF'lerde Türkçe karakter desteği için gömülü font
-streamlit_app.py          # Tüm özellikleri birleştiren web arayüzü
+  jobs.db              # Taranan ilanlar ve CRM veritabanı (git'e girmez)
+assets/fonts/          # PDF'lerde Türkçe karakter desteği için DejaVu fontları
+tests/                 # 23 adet otomatik birim testi
+baslat.bat             # Windows için tek tıkla başlatan masaüstü aracı
+streamlit_app.py        # Tüm özellikleri birleştiren modern web arayüzü
 ```
 
 ## 1. CV Oluşturma
