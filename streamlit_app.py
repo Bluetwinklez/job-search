@@ -347,6 +347,39 @@ with tab_tracker:
                     if matched_kws:
                         st.info(f"🎯 Bu ilanla eşleşen yetenekleriniz: **{', '.join(matched_kws)}**")
 
+                    with st.expander("🧠 Bu İlana Özel Mülakat Hazırlığı & Soru Rehberi"):
+                        if st.button("Mülakat Rehberi & Soruları Üret", key=f"btn_prep_{selected_url}"):
+                            from app.interview_prep import generate_mock_interview
+
+                            with st.spinner("Mülakat stratejisi ve soruları hazırlanıyor..."):
+                                prep_res = generate_mock_interview(
+                                    prof_for_match,
+                                    selected_job_data["title"] or "Uzman",
+                                    selected_job_data["company"] or "Şirket",
+                                    selected_job_data["description"],
+                                    model=model_choice,
+                                    api_key=api_key_input or None,
+                                )
+                            st.session_state[f"prep_{selected_url}"] = prep_res
+
+                        cached_prep = st.session_state.get(f"prep_{selected_url}")
+                        if cached_prep:
+                            st.markdown("##### ⭐ Öne Çıkarmanız Gereken Güçlü Yönleriniz")
+                            for s in cached_prep.key_strengths:
+                                st.markdown(f"- {s}")
+
+                            st.markdown("##### ⚠️ Dikkat Edilmesi / Savunulması Gerekenler")
+                            for g in cached_prep.potential_gaps:
+                                st.markdown(f"- {g}")
+
+                            st.markdown("##### 🎯 Olası Mülakat Soruları & Cevap Taktikleri")
+                            for idx, q in enumerate(cached_prep.questions, 1):
+                                with st.container(border=True):
+                                    st.markdown(f"**{idx}. [{q.category}]** {q.question}")
+                                    st.caption(f"🎯 **Neden Sorulur?** {q.rationale}")
+                                    st.info(f"💡 **Cevap İpucu:** {q.answer_tip}")
+
+
             new_status = st.selectbox("Yeni durum", options=STATUSES)
             notes = st.text_input("Not (opsiyonel)")
 
