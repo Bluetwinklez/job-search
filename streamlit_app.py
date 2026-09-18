@@ -16,7 +16,7 @@ from pydantic import ValidationError
 
 from app import profile_store
 from app.cover_letter import generate_cover_letter, render_letter_pdf
-from app.cv_generator import build_cv
+from app.cv_generator import THEMES, build_cv
 from app.cv_rewrite import rewrite_cv
 from app.cv_tailor import tailor_profile
 from app.job_search import (
@@ -167,24 +167,135 @@ with tab_profile:
         m3.metric("Yetenek Grubu", f"{len(active_prof.skills)} kategori")
         m4.metric("Sertifika & Proje", f"{len(active_prof.certifications) + len(active_prof.projects)} kayıt")
 
-    if st.session_state.get("_editor_loaded_for") != st.session_state["active_profile"]:
-        st.session_state["profile_json_editor"] = load_profile_text()
-        st.session_state["_editor_loaded_for"] = st.session_state["active_profile"]
-    profile_text = st.text_area("profile.json", key="profile_json_editor", height=420)
+    editor_mode = st.radio(
+        "Düzenleme Yöntemi",
+        options=["📝 Form Editörü (Kolay)", "💻 JSON Editörü (Gelişmiş)"],
+        horizontal=True,
+        key="profile_editor_mode_choice",
+    )
 
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        if st.button("Kaydet", type="primary"):
-            try:
-                data = json.loads(profile_text)
-                Profile.model_validate(data)
-            except json.JSONDecodeError as e:
-                st.error(f"Geçersiz JSON: {e}")
-            except ValidationError as e:
-                st.error(f"Profil şeması hatalı:\n{e}")
-            else:
-                profile_store.save_profile(st.session_state["active_profile"], data)
-                st.success(f"Kaydedildi: {PROFILE_PATH}")
+    if editor_mode == "📝 Form Editörü (Kolay)":
+        if not active_prof:
+            st.warning("Henüz geçerli bir profil yüklenmedi. Örnek profilden başlatılıyor.")
+            active_prof = Profile.model_validate(json.loads(EXAMPLE_PROFILE_PATH.read_text(encoding="utf-8")))
+
+        from app.profile_editor import profile_to_form_dict, form_dict_to_profile
+
+        # Form state container
+        form_state_key = f"_form_data_{st.session_state['active_profile']}"
+        if form_state_key not in st.session_state or st.session_state.get("_last_form_loaded_for") != st.session_state["active_profile"]:
+            st.session_state[form_state_key] = profile_to_form_dict(active_prof)
+            st.session_state["_last_form_loaded_for"] = st.session_state["active_profile"]
+
+        fd = st.session_state[form_state_key]
+
+        with st.form("profile_interactive_form"):
+            st.markdown("#### 👤 İletişim & Temel Bilgiler")
+            c1, c2 = st.columns(2)
+            with c1:
+                fd["contact"]["full_name"] = st.text_input("Ad Soyad", value=fd["contact"]["full_name"])
+                fd["contact"]["title"] = st.text_input("Ünvan / Pozisyon", value=fd["contact"]["title"])
+                fd["contact"]["email"] = st.text_input("E-posta", value=fd["contact"]["email"])
+                fd["contact"]["phone"] = st.text_input("Telefon", value=fd["contact"]["phone"])
+            with c2:
+                fd["contact"]["location"] = st.text_input("Konum / Şehir", value=fd["contact"]["location"])
+                fd["contact"]["linkedin"] = st.text_input("LinkedIn", value=fd["contact"]["linkedin"])
+                fd["contact"]["github"] = st.text_input("GitHub", value=fd["contact"]["github"])
+                fd["contact"]["website"] = st.text_input("Kişisel Web Sitesi", value=fd["contact"]["website"])
+
+            st.markdown("#### 📝 Profesyonel Özet")
+            fd["summary"] = st.text_area("Özet Metni", value=fd.get("summary") or "", height=100)
+
+            st.markdown("#### 💼 İş Deneyimleri")
+            exp_to_remove = []
+            for idx, exp in enumerate(fd["experience"]):
+                with st.expander(f"📌 {exp.get('role') or 'Pozisyon'} @ {exp.get('company') or 'Şirket'}", expanded=(idx == 0)):
+                    ec1, ec2, ec3 = st.columns([2, 2, 1])
+                    exp["role"] = ec1.text_input(f"Pozisyon #{idx+1}", value=exp["role"], key=f"fe_role_{idx}")
+                    exp["company"] = ec2.text_input(f"Şirket #{idx+1}", value=exp["company"], key=f"fe_comp_{idx}")
+                    exp["location"] = ec3.text_input(f"Konum #{idx+1}", value=exp["location"], key=f"fe_loc_{idx}")
+
+                    ec4, ec5 = st.columns(2)
+                    exp["start_date"] = ec4.text_input(f"Başlangıç (ör. 2022-03) #{idx+1}", value=exp["start_date"], key=f"fe_sd_{idx}")
+                    exp["end_date"] = ec5.text_input(f"Bitiş (boş ise Halen) #{idx+1}", value=exp["end_date"], key=f"fe_ed_{idx}")
+
+                    exp["highlights"] = st.text_area(
+                        f"Başarılar / Görevler (Her satır bir madde) #{idx+1}",
+                        value=exp["highlights"],
+                        height=100,
+                        key=f"fe_hl_{idx}",
+                    )
+                    exp["tech_stack"] = st.text_input(
+                        f"Kullanılan Teknolojiler (virgülle ayırın) #{idx+1}",
+                        value=exp["tech_stack"],
+                        key=f"fe_ts_{idx}",
+                    )
+
+            st.markdown("#### 🎓 Eğitim")
+            for idx, edu in enumerate(fd["education"]):
+                with st.expander(f"🎓 {edu.get('school') or 'Okul'} — {edu.get('degree') or 'Derece'}", expanded=(idx == 0)):
+                    ed1, ed2, ed3 = st.columns([2, 1, 2])
+                    edu["school"] = ed1.text_input(f"Okul / Üniversite #{idx+1}", value=edu["school"], key=f"fe_sch_{idx}")
+                    edu["degree"] = ed2.text_input(f"Derece (Lisans, YL) #{idx+1}", value=edu["degree"], key=f"fe_deg_{idx}")
+                    edu["field"] = ed3.text_input(f"Bölüm #{idx+1}", value=edu["field"], key=f"fe_fld_{idx}")
+
+                    ed4, ed5 = st.columns(2)
+                    edu["start_date"] = ed4.text_input(f"Başlangıç Yılı #{idx+1}", value=edu["start_date"], key=f"fe_esd_{idx}")
+                    edu["end_date"] = ed5.text_input(f"Mezuniyet Yılı #{idx+1}", value=edu["end_date"], key=f"fe_eed_{idx}")
+
+            st.markdown("#### 🛠️ Yetenek Grupları")
+            for idx, sg in enumerate(fd["skills"]):
+                sk1, sk2 = st.columns([1, 3])
+                sg["category"] = sk1.text_input(f"Kategori #{idx+1}", value=sg["category"], key=f"fe_cat_{idx}")
+                sg["items"] = sk2.text_input(f"Yetenekler (virgülle ayrılmış) #{idx+1}", value=sg["items"], key=f"fe_sk_{idx}")
+
+            st.markdown("#### 🌐 Diller, Sertifikalar & Projeler")
+            fd["languages"] = st.text_input("Diller (virgülle ayırın)", value=fd["languages"], help="ör. Türkçe (Anadil), İngilizce (C1)")
+            fd["certifications"] = st.text_input("Sertifikalar (virgülle ayırın)", value=fd["certifications"], help="ör. AWS Solutions Architect, CKA")
+
+            for idx, proj in enumerate(fd["projects"]):
+                with st.expander(f"🚀 {proj.get('name') or 'Proje'} #{idx+1}", expanded=False):
+                    p1, p2 = st.columns(2)
+                    proj["name"] = p1.text_input(f"Proje Adı #{idx+1}", value=proj["name"], key=f"fe_pr_n_{idx}")
+                    proj["url"] = p2.text_input(f"Proje Linki #{idx+1}", value=proj["url"], key=f"fe_pr_u_{idx}")
+                    proj["description"] = st.text_input(f"Açıklama #{idx+1}", value=proj["description"], key=f"fe_pr_d_{idx}")
+                    proj["technologies"] = st.text_input(f"Teknolojiler #{idx+1}", value=proj["technologies"], key=f"fe_pr_t_{idx}")
+
+            save_form_btn = st.form_submit_button("💾 Form Değişikliklerini Kaydet", type="primary")
+            if save_form_btn:
+                try:
+                    updated_profile = form_dict_to_profile(fd)
+                    profile_store.save_profile(st.session_state["active_profile"], updated_profile.model_dump())
+                    st.session_state["profile_json_editor"] = json.dumps(
+                        updated_profile.model_dump(), ensure_ascii=False, indent=2
+                    )
+                    st.success("Profil formu başarıyla kaydedildi!")
+                    st.rerun()
+                except ValidationError as err:
+                    st.error(f"Profil doğrulama hatası:\n{err}")
+                except Exception as err:
+                    st.error(f"Kaydetme başarısız: {err}")
+
+    else:
+        if st.session_state.get("_editor_loaded_for") != st.session_state["active_profile"]:
+            st.session_state["profile_json_editor"] = load_profile_text()
+            st.session_state["_editor_loaded_for"] = st.session_state["active_profile"]
+        profile_text = st.text_area("profile.json", key="profile_json_editor", height=420)
+
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("Kaydet (JSON)", type="primary"):
+                try:
+                    data = json.loads(profile_text)
+                    Profile.model_validate(data)
+                except json.JSONDecodeError as e:
+                    st.error(f"Geçersiz JSON: {e}")
+                except ValidationError as e:
+                    st.error(f"Profil şeması hatalı:\n{e}")
+                else:
+                    profile_store.save_profile(st.session_state["active_profile"], data)
+                    st.session_state.pop(f"_form_data_{st.session_state['active_profile']}", None)
+                    st.success(f"Kaydedildi: {PROFILE_PATH}")
 
     with st.expander("Sürüm geçmişi"):
         history = profile_store.list_history(st.session_state["active_profile"])
@@ -212,12 +323,22 @@ with tab_cv:
     if profile is None:
         st.warning("Önce 'Profil' sekmesinden geçerli bir profil kaydet.")
     else:
-        st.write(f"**{profile.contact.full_name}** — {profile.contact.title}")
+        col_cv1, col_cv2 = st.columns([2, 1])
+        with col_cv1:
+            st.write(f"**{profile.contact.full_name}** — {profile.contact.title}")
+        with col_cv2:
+            selected_theme = st.selectbox(
+                "CV Tasarım Teması",
+                options=list(THEMES.keys()),
+                format_func=lambda k: THEMES[k]["name"],
+                key="cv_theme_select",
+            )
+
         if st.button("PDF Oluştur", type="primary"):
-            pdf = build_cv(profile)
+            pdf = build_cv(profile, theme=selected_theme)
             pdf_bytes = bytes(pdf.output())
             st.session_state["cv_pdf_bytes"] = pdf_bytes
-            st.success("CV oluşturuldu.")
+            st.success(f"CV oluşturuldu ({THEMES[selected_theme]['name']}).")
         if "cv_pdf_bytes" in st.session_state:
             st.download_button(
                 "CV'yi indir (PDF)",
@@ -225,6 +346,36 @@ with tab_cv:
                 file_name=f"{profile.contact.full_name.replace(' ', '_')}_CV.pdf",
                 mime="application/pdf",
             )
+
+        with st.expander("🎯 ATS Uyumluluk Skoru & Denetim Raporu", expanded=True):
+            from app.ats_scorer import score_profile
+
+            report = score_profile(profile)
+
+            c_sc1, c_sc2 = st.columns([1, 2])
+            with c_sc1:
+                st.metric("ATS Skoru", f"{report.total_score} / 100")
+                st.progress(report.total_score / 100.0)
+            with c_sc2:
+                b = report.breakdown
+                st.markdown(
+                    f"- İletişim: **{b.contact_score}/15**\n"
+                    f"- Özet: **{b.summary_score}/15**\n"
+                    f"- Deneyim: **{b.experience_score}/30** (Sayısal Metrik: **{report.metric_mentions_count}**)\n"
+                    f"- Yetenekler: **{b.skills_score}/25**\n"
+                    f"- Eğitim: **{b.education_score}/15**"
+                )
+
+            if report.strengths:
+                st.markdown("**Güçlü Yönler:**")
+                for s in report.strengths:
+                    st.caption(f"✅ {s}")
+
+            if report.recommendations:
+                st.markdown("**ATS Tavsiyeleri:**")
+                for r in report.recommendations:
+                    st.caption(f"💡 {r}")
+
 
         with st.expander("İlana özel uyarla (Claude ile)"):
             st.caption(
