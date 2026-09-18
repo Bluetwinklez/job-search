@@ -218,6 +218,39 @@ Web arayüzünde **Profil** sekmesindeki "Var olan bir CV'yi yükle ve
 yeniden yaz (Claude ile)" bölümünden `.pdf`/`.txt` yükleyebilir ya da
 metni doğrudan yapıştırabilirsin; sonuç profil düzenleyicisine
 otomatik doldurulur, incelendikten sonra "Kaydet"e basman yeterli.
+
+## 7. İngilizce CV (Claude API ile)
+
+`app/cv_translate.py`, profildeki gerçek bilgileri koruyarak (yeni bilgi
+uydurmadan) tüm metin alanlarını doğal İngilizceye çevirir; şirket/okul
+adları, tarihler ve iletişim bilgileri değiştirilmez. Sonuç, İngilizce
+bölüm başlıklarıyla (`Summary`, `Experience`, `Education`, ...) PDF CV
+üretiminde kullanılır.
+
+Çalışması için ortamda `ANTHROPIC_API_KEY` tanımlı olmalı.
+
+```bash
+python -m app.cv_translate --profile data/profile.json --output data/profile_en.json
+python -m app.cv_generator --profile data/profile_en.json --output cv_en.pdf --language en
+```
+
+Web arayüzünde **CV Oluştur** sekmesindeki "🌐 İngilizce CV Oluştur"
+bölümünden tek tıkla üretilebilir. Aynı çeviri prensibi Ön Yazı
+sekmesindeki dil seçeneğinde de kullanılır (bkz. bölüm 4).
+
+## Not: LinkedIn'den Otomatik Profil İçe Aktarma
+
+LinkedIn profilinin otomatik olarak (API veya kazıma yoluyla) içe
+aktarılması bilinçli olarak **eklenmedi**: LinkedIn'in Kullanım
+Şartları, oturum/kimlik bilgisi gerektiren otomatik veri çekmeyi (scraping)
+yasaklıyor ve resmi API'si bu tür kişisel profil verisine üçüncü taraf
+uygulamalar için açık değil. Bu riski almak yerine, bölüm 6'daki "Var
+Olan Bir CV'yi Yükle ve Yeniden Yaz" akışı pratik bir alternatif sunar:
+LinkedIn profilinin PDF olarak dışa aktarılan hali (LinkedIn > Profili
+Düzenle > Daha Fazla > Profili PDF Olarak Kaydet) veya profil metninin
+kopyala-yapıştır hâli doğrudan yüklenip aynı ATS-dostu yeniden yazma
+işleminden geçirilebilir.
+
 ## Testleri Çalıştırma
 
 Tüm birim testleri (Türkçe eşleşme, CV/Ön yazı PDF üretimi, SQLite işlemleri ve Pydantic validasyonları) tek komutla çalıştırılabilir:
