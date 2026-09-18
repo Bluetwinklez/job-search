@@ -15,13 +15,8 @@ import argparse
 import json
 from pathlib import Path
 
-from app.matching import contains_keyword
+from app.matching import contains_keyword, split_keywords
 from app.models import Experience, Profile
-
-_STOPWORDS = {
-    "ve", "ile", "bir", "bu", "de", "da", "için", "olan", "gibi", "çok",
-    "the", "and", "for", "with", "our", "you", "are", "your",
-}
 
 
 def _matching_skills(profile: Profile, job_description: str | None, top_n: int = 5) -> list[str]:
@@ -33,24 +28,18 @@ def _matching_skills(profile: Profile, job_description: str | None, top_n: int =
     return ordered[:top_n]
 
 
-def _job_keywords(job_title: str, job_description: str | None) -> set[str]:
-    text = f"{job_title} {job_description or ''}".lower()
-    words = {w.strip(".,;:()/\\-") for w in text.split()}
-    return {w for w in words if len(w) >= 4 and w not in _STOPWORDS}
-
-
 def _most_relevant_experience(profile: Profile, job_title: str, job_description: str | None) -> Experience | None:
     if not profile.experience:
         return None
-    job_words = _job_keywords(job_title, job_description)
+    job_words = split_keywords(f"{job_title} {job_description or ''}")
     if not job_words:
         return profile.experience[0]
 
     best_exp = profile.experience[0]
     best_score = -1
     for exp in profile.experience:
-        exp_text = f"{exp.company} {exp.role} {' '.join(exp.highlights)} {' '.join(exp.tech_stack)}".lower()
-        exp_words = {w.strip(".,;:()/\\-") for w in exp_text.split()}
+        exp_text = f"{exp.company} {exp.role} {' '.join(exp.highlights)} {' '.join(exp.tech_stack)}"
+        exp_words = split_keywords(exp_text)
         score = sum(1 for w in exp_words if w in job_words)
         if score > best_score:
             best_score = score
@@ -109,13 +98,34 @@ def generate_cover_letter(
     return "\n".join(p for p in paragraphs if p is not None)
 
 
+def render_letter_pdf(letter_text: str):
+    """Düz metin ön yazıyı, CV ile aynı yazı tipini kullanan bir PDF'e dönüştürür."""
+    from fpdf import FPDF
+
+    from app.cv_generator import FONT_FAMILY, FONTS_DIR
+
+    pdf = FPDF(format="A4")
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_font(FONT_FAMILY, "", str(FONTS_DIR / "DejaVuSans.ttf"))
+    pdf.add_page()
+    pdf.set_margins(20, 20, 20)
+    pdf.set_font(FONT_FAMILY, "", 11)
+    for line in letter_text.split("\n"):
+        if line.strip() == "":
+            pdf.ln(4)
+        else:
+            pdf.multi_cell(0, 6, line, new_x="LMARGIN", new_y="NEXT")
+    return pdf
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="İlana özel ön yazı taslağı üretir.")
     parser.add_argument("--profile", type=Path, required=True)
     parser.add_argument("--title", required=True, help="İlanın pozisyon adı")
     parser.add_argument("--company", required=True, help="Şirket adı")
     parser.add_argument("--job-description-file", type=Path, default=None, help="İlan açıklaması (metin dosyası)")
-    parser.add_argument("--output", type=Path, default=None, help="Çıktı dosyası (verilmezse ekrana yazdırılır)")
+    parser.add_argument("--output", type=Path, default=None, help="Çıktı metin dosyası (verilmezse ekrana yazdırılır)")
+    parser.add_argument("--pdf", type=Path, default=None, help="Verilirse, ön yazıyı PDF olarak da üretir")
     args = parser.parse_args()
 
     profile = Profile.model_validate(json.loads(args.profile.read_text(encoding="utf-8")))
@@ -127,6 +137,10 @@ def main() -> None:
         print(f"Ön yazı oluşturuldu: {args.output}")
     else:
         print(letter)
+
+    if args.pdf:
+        render_letter_pdf(letter).output(str(args.pdf))
+        print(f"PDF ön yazı oluşturuldu: {args.pdf}")
 
 
 if __name__ == "__main__":

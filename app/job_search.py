@@ -27,7 +27,7 @@ from pathlib import Path
 import pandas as pd
 from jobspy import scrape_jobs
 
-from app.matching import contains_keyword
+from app.matching import contains_keyword, split_keywords
 from app.models import Profile
 
 ALL_SITES = [
@@ -72,12 +72,29 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
 
 
 def _profile_keywords(profile: Profile) -> set[str]:
-    keywords: set[str] = set()
+    """Profildeki yetenek/teknoloji ifadelerinden eşleşme anahtar kelimelerini çıkarır.
+
+    Hem ifadenin tamamını (ör. "reçete karşılama") hem de anlamlı tekil
+    kelimelerini (ör. "reçete", "karşılama") ekler — böylece tek kelimelik
+    teknoloji adları (ör. "Python") için önceki davranış korunurken, çok
+    kelimeli Türkçe ifadeler (ör. eczane/idari işler gibi teknik olmayan
+    alanlar) ilan metninde birebir aynı sırayla geçmese bile kısmi eşleşme
+    kredisi alabiliyor.
+    """
+    items: list[str] = []
     for group in profile.skills:
-        keywords.update(item.strip().lower() for item in group.items)
+        items.extend(group.items)
     for exp in profile.experience:
-        keywords.update(t.strip().lower() for t in exp.tech_stack)
-    return {k for k in keywords if k}
+        items.extend(exp.tech_stack)
+
+    keywords: set[str] = set()
+    for item in items:
+        item = item.strip()
+        if not item:
+            continue
+        keywords.add(item.lower())
+        keywords.update(split_keywords(item))
+    return keywords
 
 
 def _match_score(description: str | None, keywords: set[str]) -> float | None:
