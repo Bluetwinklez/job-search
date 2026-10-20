@@ -18,6 +18,7 @@ edebilir ve IP engellemesine yol açabilir; `--results` değerini makul tut.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -166,42 +167,49 @@ def _clean(value) -> str | None:
 def save_jobs(df, db_path: Path, profile: Profile | None = None) -> int:
     keywords = _profile_keywords(profile) if profile else set()
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    _ensure_schema(conn)
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.execute("BEGIN IMMEDIATE")
+        _ensure_schema(conn)
 
-    new_count = 0
-    fetched_at = datetime.now(timezone.utc).isoformat()
-    for row in df.to_dict(orient="records"):
-        job_url = row.get("job_url")
-        if not job_url:
-            continue
-        description = _clean(row.get("description"))
-        score = _match_score(description, keywords) if keywords else None
-        cur = conn.execute(
-            """
-            INSERT INTO jobs (job_url, site, title, company, location, job_type,
-                               date_posted, description, match_score, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(job_url) DO UPDATE SET match_score = excluded.match_score
-            """,
-            (
-                job_url,
-                _clean(row.get("site")) or "",
-                _clean(row.get("title")),
-                _clean(row.get("company")),
-                _clean(row.get("location")) or "",
-                _clean(row.get("job_type")) or "",
-                _clean(row.get("date_posted")) or "",
-                description,
-                score,
-                fetched_at,
-            ),
-        )
-        if cur.rowcount:
-            new_count += 1
-    conn.commit()
-    conn.close()
-    return new_count
+        new_count = 0
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        for row in df.to_dict(orient="records"):
+            job_url = row.get("job_url")
+            if not job_url:
+                continue
+            description = _clean(row.get("description"))
+            score = _match_score(description, keywords) if keywords else None
+            exists = conn.execute("SELECT 1 FROM jobs WHERE job_url = ?", (job_url,)).fetchone() is not None
+            conn.execute(
+                """
+                INSERT INTO jobs (job_url, site, title, company, location, job_type,
+                                   date_posted, description, match_score, fetched_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(job_url) DO UPDATE SET
+                    site = excluded.site, title = excluded.title,
+                    company = excluded.company, location = excluded.location,
+                    job_type = excluded.job_type, date_posted = excluded.date_posted,
+                    description = COALESCE(excluded.description, jobs.description),
+                    match_score = COALESCE(excluded.match_score, jobs.match_score),
+                    fetched_at = excluded.fetched_at
+                """,
+                (
+                    job_url,
+                    _clean(row.get("site")) or "",
+                    _clean(row.get("title")),
+                    _clean(row.get("company")),
+                    _clean(row.get("location")) or "",
+                    _clean(row.get("job_type")) or "",
+                    _clean(row.get("date_posted")) or "",
+                    description,
+                    score,
+                    fetched_at,
+                ),
+            )
+            if not exists:
+                new_count += 1
+        conn.commit()
+        return new_count
 
 
 def list_jobs(
