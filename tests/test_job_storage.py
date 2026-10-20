@@ -28,3 +28,27 @@ def test_duplicate_rows_are_counted_once_and_partial_scans_keep_description(tmp_
     job = get_job(db, row['job_url'])
     assert job['description'] == 'Keep this'
     assert job['match_score'] == 0.8
+
+
+def test_dates_and_partial_metadata_survive_rescans(tmp_path):
+    from datetime import date
+    db = tmp_path / 'jobs.db'
+    url = 'https://example.test/date'
+    first = dict(job_url=url, title='Engineer', company='Example',
+                 location='Remote', date_posted=date(2026, 10, 20))
+    assert save_jobs(pd.DataFrame([first]), db) == 1
+    assert get_job(db, url)['date_posted'] == '2026-10-20'
+    assert save_jobs(pd.DataFrame([dict(job_url=url, title=None,
+        company=float('nan'), location='', date_posted=pd.NaT)]), db) == 0
+    job = get_job(db, url)
+    assert (job['title'], job['company'], job['location'], job['date_posted']) == (
+        'Engineer', 'Example', 'Remote', '2026-10-20')
+
+
+def test_missing_or_non_string_urls_do_not_create_rows(tmp_path):
+    db = tmp_path / 'jobs.db'
+    rows = [dict(job_url=value) for value in [None, float('nan'), pd.NA, '', '  ', 123]]
+    rows.append(dict(job_url=' https://example.test/valid '))
+    assert save_jobs(pd.DataFrame(rows), db) == 1
+    with sqlite3.connect(db) as conn:
+        assert conn.execute('SELECT job_url FROM jobs').fetchall() == [('https://example.test/valid',)]
