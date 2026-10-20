@@ -22,7 +22,7 @@ from contextlib import closing
 import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -161,7 +161,15 @@ def search_jobs(
 def _clean(value) -> str | None:
     if not isinstance(value, str):
         return None
-    return value
+    return value.strip() or None
+
+
+def _posted_date(value) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    if isinstance(value, date):
+        return value.isoformat()
+    return _clean(value)
 
 
 def save_jobs(df, db_path: Path, profile: Profile | None = None) -> int:
@@ -174,7 +182,7 @@ def save_jobs(df, db_path: Path, profile: Profile | None = None) -> int:
         new_count = 0
         fetched_at = datetime.now(timezone.utc).isoformat()
         for row in df.to_dict(orient="records"):
-            job_url = row.get("job_url")
+            job_url = _clean(row.get("job_url"))
             if not job_url:
                 continue
             description = _clean(row.get("description"))
@@ -186,21 +194,24 @@ def save_jobs(df, db_path: Path, profile: Profile | None = None) -> int:
                                    date_posted, description, match_score, fetched_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(job_url) DO UPDATE SET
-                    site = excluded.site, title = excluded.title,
-                    company = excluded.company, location = excluded.location,
-                    job_type = excluded.job_type, date_posted = excluded.date_posted,
+                    site = COALESCE(excluded.site, jobs.site),
+                    title = COALESCE(excluded.title, jobs.title),
+                    company = COALESCE(excluded.company, jobs.company),
+                    location = COALESCE(excluded.location, jobs.location),
+                    job_type = COALESCE(excluded.job_type, jobs.job_type),
+                    date_posted = COALESCE(excluded.date_posted, jobs.date_posted),
                     description = COALESCE(excluded.description, jobs.description),
                     match_score = COALESCE(excluded.match_score, jobs.match_score),
                     fetched_at = excluded.fetched_at
                 """,
                 (
                     job_url,
-                    _clean(row.get("site")) or "",
+                    _clean(row.get("site")),
                     _clean(row.get("title")),
                     _clean(row.get("company")),
-                    _clean(row.get("location")) or "",
-                    _clean(row.get("job_type")) or "",
-                    _clean(row.get("date_posted")) or "",
+                    _clean(row.get("location")),
+                    _clean(row.get("job_type")),
+                    _posted_date(row.get("date_posted")),
                     description,
                     score,
                     fetched_at,

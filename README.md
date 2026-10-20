@@ -43,7 +43,7 @@ Use `--help` on a module to see its current options. Tracker statuses are `yeni`
 
 ## Storage and repeat searches
 
-Listings live in `data/jobs.db`, keyed by job URL. Repeat searches refresh the title, company, location, dates and available description/score without changing your application status or notes. Missing descriptions and scores do not erase existing values. The reported new-listing count counts only newly inserted URLs, including when a search returns duplicates.
+Listings live in `data/jobs.db`, keyed by job URL. Repeat searches refresh the title, company, location, dates and available description/score without changing your application status or notes. Missing metadata, descriptions and scores do not erase existing values. Native date/timestamp values are serialized to ISO format, and rows without a non-empty string URL are skipped. The reported new-listing count counts only newly inserted URLs, including when a search returns duplicates.
 
 The profile schema is defined in `app/models.py`; PDF fonts live in `assets/fonts/`. Matching scores are keyword-based relevance estimates. They do not predict hiring outcomes or guarantee ATS acceptance. Review generated documents and verify every fact before sending them.
 
