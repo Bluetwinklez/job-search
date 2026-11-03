@@ -62,3 +62,5 @@ python -m pytest -q
 ```
 
 GitHub Actions runs compilation and storage regressions on Python 3.12. Tests use temporary databases and do not scrape live job boards or call paid AI services. [Detailed previous guide (Turkish)](README.tr.md).
+
+[Security policy](SECURITY.md) · [Repository security audit](SECURITY_AUDIT.md)
